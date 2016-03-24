@@ -1,0 +1,45 @@
+C:\Python27\Lib\site-packages\matplotlib
+
+Modified colorbar.py (in def _add_solids)
+#-----------------------------------------------
+        col = self.ax.pcolor(*args, **kw) # was pcolormesh
+#-----------------------------------------------
+
+Modified backends\backend_tkagg.py (in class NavigationToolbar2TkAgg : def save_figure)
+#-----------------------------------------------
+    def save_figure(self, initialfile=None, filetypes=None, *args):
+#-----------------------------------------------
+
+#-----------------------------------------------
+        if filetypes :
+            sorted_filetypes = []
+            filetypes_supported = self.canvas.get_supported_filetypes()
+            for filetype in filetypes :
+                if filetypes_supported.has_key(filetype) :
+                    sorted_filetypes.append((filetype, filetypes_supported[filetype]))
+        else : # as before
+            filetypes = self.canvas.get_supported_filetypes().copy()
+            default_filetype = self.canvas.get_default_filetype()
+
+            # Tk doesn't provide a way to choose a default filetype,
+            # so we just have to put it first
+            default_filetype_name = filetypes[default_filetype]
+            del filetypes[default_filetype]
+
+            sorted_filetypes = filetypes.items()
+            sorted_filetypes.sort()
+            sorted_filetypes.insert(0, (default_filetype, default_filetype_name))
+#-----------------------------------------------
+
+#-----------------------------------------------
+        if not initialfile :
+            initialfile = self.canvas.get_default_filename()
+#-----------------------------------------------
+
+#-----------------------------------------------
+            return fname
+#-----------------------------------------------
+
+#-----------------------------------------------
+            return fname
+#-----------------------------------------------

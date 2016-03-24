@@ -1,0 +1,86 @@
+# This is regions.tcl, which defines the regions used by SCENGEN.  A
+# region's NAME is a word (lowercase, no non-alphanumerics) that is
+# used to uniquely refer to the region; it is used as the primary
+# index in the Region array.  The LABEL is an arbitrary string used to
+# label the region on the map and in selection controls.  The MASK is
+# the name of the mask file associated with the region; the entry
+# "none" indicates that there is no mask file (all grid cells are
+# included.)  N, S, E, and W, are the latitude / longitude boundaries
+# of the region.  Latitude values run from -90 to 90 and longitude
+# values from -180 to 180.
+
+# The following regions are used for display, and should not be
+# altered.
+
+
+set Region(user,label) "User-defined"
+set Region(user,mask) 	none
+set Region(user,n)      90.0
+set Region(user,e)	180.0
+set Region(user,s)	-90.0
+set Region(user,w)	-180.0
+	  
+set Region(world,label)	"World"
+set Region(world,mask) 	none
+set Region(world,n)	90.0
+set Region(world,e)	180.0
+set Region(world,s)	-90.0
+set Region(world,w)	-180.0
+
+set Region(aerosol1,label)	"Aerosol Region 1"
+set Region(aerosol1,mask) 	none
+set Region(aerosol1,n)		90
+set Region(aerosol1,e)		45
+set Region(aerosol1,s)		25
+set Region(aerosol1,w)		-180
+
+set Region(aerosol2,label)	"Aerosol Region 2"
+set Region(aerosol2,mask) 	none
+set Region(aerosol2,n)		90
+set Region(aerosol2,e)		180
+set Region(aerosol2,s)		0
+set Region(aerosol2,w)		45
+
+set Region(aerosol3,label)	"Aerosol Region 3"
+set Region(aerosol3,mask) 	none
+set Region(aerosol3,n)		25
+set Region(aerosol3,e)		180
+set Region(aerosol3,s)		-90
+set Region(aerosol3,w)		-180
+
+##################################################################
+
+# Regions from here down can be altered, added, deleted, etc.
+# $regionList is the list of regions that should be displayed in the
+# region selection window.
+
+set regionList {usa europe sasia safrica}
+
+	  
+set Region(usa,label)	"U.S.A."
+set Region(usa,mask) 	none
+set Region(usa,n)	55.0
+set Region(usa,e)	-65.0
+set Region(usa,s)	25.0
+set Region(usa,w)	-125.0
+	  
+set Region(europe,label)	"Europe"
+set Region(europe,mask)		none
+set Region(europe,n)		70.0
+set Region(europe,e)		45.0
+set Region(europe,s)		35.0
+set Region(europe,w)		-15.0
+	  
+set Region(sasia,label)	"South Asia"
+set Region(sasia,mask) 	none
+set Region(sasia,n)	40.0
+set Region(sasia,e)	110.0
+set Region(sasia,s)	5.0
+set Region(sasia,w)	50.0
+	  
+set Region(safrica,label)	"Southern Africa"
+set Region(safrica,mask) 	none
+set Region(safrica,n)		0.0
+set Region(safrica,e)		55.0
+set Region(safrica,s)		-35.0
+set Region(safrica,w)		-5.0

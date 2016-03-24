@@ -1,0 +1,20 @@
+C:\Python27\Lib\site-packages\mpl_toolkits\basemap
+
+Added to __init__.py
+#-----------------------------------------------
+#   Check if it turns into a Windows executable with py2exe
+if (basemap_datadir.find('library.zip') > -1) :
+    from os import path
+    expected_path = path.join('library.zip','mpl_toolkits','basemap','data')
+    py2exe_path = path.join('mpl-data','basemap-data')
+    basemap_datadir = basemap_datadir.replace(expected_path, py2exe_path)
+#-----------------------------------------------
+
+Added to pyproj.py
+#-----------------------------------------------
+#   Check if it turns into a Windows executable with py2exe
+if (pyproj_datadir.find('library.zip') > -1) :
+    expected_path = os.path.join('library.zip','mpl_toolkits','basemap','data')
+    py2exe_path = os.path.join('mpl-data','basemap-data')
+    pyproj_datadir = pyproj_datadir.replace(expected_path, py2exe_path)
+#-----------------------------------------------

@@ -1,0 +1,20 @@
+/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/site-packages/mpl_toolkits/basemap/
+
+Added to __init__.py
+#-----------------------------------------------
+#   Check if it turns into a Mac executable with py2app
+if (basemap_datadir.find('site-packages.zip') > -1) :
+    from os import path
+    expected_path = path.join('lib','python2.7','site-packages.zip','mpl_toolkits','basemap','data')
+    py2app_path = path.join('mpl-data','basemap-data')
+    basemap_datadir = basemap_datadir.replace(expected_path, py2app_path)
+#-----------------------------------------------
+
+Added to pyproj.py
+#-----------------------------------------------
+#   Check if it turns into a Mac executable with py2app
+if (pyproj_datadir.find('site-packages.zip') > -1) :
+    expected_path = os.path.join('lib','python2.7','site-packages.zip','mpl_toolkits','basemap','data')
+    py2app_path = os.path.join('mpl-data','basemap-data')
+    pyproj_datadir = pyproj_datadir.replace(expected_path, py2app_path)
+#-----------------------------------------------

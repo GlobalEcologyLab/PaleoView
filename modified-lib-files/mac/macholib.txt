@@ -1,0 +1,6 @@
+/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/site-packages/macholib/
+
+Modified MachOGraph.py (in class MachOGraph: def locate)
+#-----------------------------------------------
+                        loader_path=loader.filename) # was loader=loader.filename
+#-----------------------------------------------

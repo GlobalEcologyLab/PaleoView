@@ -1,0 +1,8 @@
+C:\Python27\Lib\site-packages\docx
+
+Added to api.py in _default_docx_path()
+#-----------------------------------------------
+#   Check if it turns into a Windows executable with py2exe
+    if (_thisdir.find('library.zip') > -1) :
+        _thisdir = _thisdir.replace(os.path.join('library.zip','docx'), 'docx-data')
+#-----------------------------------------------

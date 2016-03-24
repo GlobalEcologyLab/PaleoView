@@ -1,0 +1,8 @@
+/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/site-packages/docx/
+
+Added to api.py in _default_docx_path()
+#-----------------------------------------------
+#   Check if it turns into a Mac executable with py2app
+    if (_thisdir.find('site-packages.zip') > -1) :
+        _thisdir = _thisdir.replace(os.path.join('lib','python2.7','site-packages.zip','docx'), 'docx-data')
+#-----------------------------------------------

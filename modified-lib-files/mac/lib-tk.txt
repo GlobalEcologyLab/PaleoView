@@ -1,0 +1,17 @@
+/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/lib-tk/
+
+Modified Tkinter.py 
+
+(in class OptionMenu: def __init__)
+#-----------------------------------------------
+        kw = {"borderwidth": 2, "textvariable": variable,
+              "indicatoron": 1, "relief": RAISED, "anchor": "c",
+              "highlightthickness": 2, "padx": 15, "pady": 3} # added padx:15, pady:3
+#-----------------------------------------------
+
+(in class Button: def __init__)
+#-----------------------------------------------
+        kw['padx'] = 7
+        kw['pady'] = 3
+#-----------------------------------------------
+
