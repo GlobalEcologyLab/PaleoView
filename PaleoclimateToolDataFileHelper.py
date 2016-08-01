@@ -1,9 +1,10 @@
 # Python modules
 import re
 import string
+import urllib
 import urllib2 as url
 from math import floor
-from os import listdir, mkdir, path
+from os import listdir, mkdir, path, remove
 from StringIO import StringIO
 from time import time, localtime, strftime
 
@@ -19,15 +20,16 @@ from docx.enum.section import WD_ORIENT
 import lxml.etree
 import lxml._elementpath
 
-# Tool library modules
-from PaleoclimateDataDropboxUrlLookupHelper import PaleoclimateDataDropboxUrlLookupHelper
-
 ## Paleoclimate Tool Data File Helper
-## * .
-## * :
-##   1. 
-##   2. 
-## * .
+## * Loads climate data files into arrays for the PaleoView tool.
+## * Loads bias correction data for the tool.
+## * Calculates delta values, that is the change in climate data values relative to a specified year
+## * Calculates climate data statistics for a specified grid region
+## * Generates grid data files based on aggregated climate data
+## * Generates series data files based on aggregated climate data
+## * Generates a text table for recording statistics
+## * Generates NetCDF files for subsets of the climate data (for web-based repository)
+## * Downloads and unpacks climate data subsets from the web-based NetCDF repository 
 class PaleoclimateToolDataFileHelper :
 
     # Initialise
@@ -36,18 +38,12 @@ class PaleoclimateToolDataFileHelper :
         # Set the application GUI
         self.application_gui = application_gui
 
-        # Create the Paleoclimate data dropbox URL lookup helper
-        self.dropbox_url_helper = PaleoclimateDataDropboxUrlLookupHelper()
-
         # Climate data source
-        self.climate_data_source = ''
+        self.climate_data_source = 'local' # url or local
 
         # Climate data url and optional proxy details
         self.climate_data_url = ''
         self.climate_data_proxy = { 'active' : False, 'url' : '', 'username' : '', 'password' : '' }
-
-        # Climate data directory
-        self.climate_data_directory = { 'name' : '', 'directory' : '', 'path' : '' }
 
         # Climate data directory
         self.climate_data_directory = { 'name' : '', 'directory' : '', 'path' : '' }
@@ -69,6 +65,11 @@ class PaleoclimateToolDataFileHelper :
         self.grid_height = 72
         self.grid_width = 144
 
+        # Climate data parameters in presented order
+        self.data_parameters = ['mean_temperature', 'minimum_temperature', 'maximum_temperature',
+                                'specific_humidity', 'relative_humidity',
+                                'precipitation', 'sea_level_pressure']
+
         # Parameter directory code map
         self.parameter_directory_code_map = { 'mean_temperature' : 'T', 'minimum_temperature' : 'Tmin', 'maximum_temperature' : 'Tmax',
                                               'specific_humidity' : 'Q', 'relative_humidity' : 'H',
@@ -78,8 +79,24 @@ class PaleoclimateToolDataFileHelper :
                                          'specific_humidity' : 'S', 'relative_humidity' : 'H',
                                          'precipitation' : 'P', 'sea_level_pressure' : 'M' }
 
+        # Parameter unit strings
+        self.parameter_unit_string = { 'mean_temperature' : 'degrees C', 'minimum_temperature' : 'degrees C', 'maximum_temperature' : 'degrees C',
+                                       'specific_humidity' : 'gm/kg', 'relative_humidity' : '%',
+                                       'precipitation' : 'mm/day', 'sea_level_pressure' : 'hPa' }
+
         # Climate data file template
         self.climate_data_file_template = path.join('{parameter_directory_code}', 'Trace21_2.5x2.5_{year}{postfix}.1{parameter_file_code}{month_code}.txt')
+
+        # Climate data download intervals
+        self.climate_data_download_intervals = ['22000BP-15000BP', '15000BP-10000BP', '10000BP-5000BP', '5000BP-1989AD']
+        self.download_data_window = 100 # needs to match with the tool's maximum interval size
+
+        # Use downloaded NetCDF files. Maintain a current list of available files for each parameter
+        self.use_netCdf_data = True
+        self.current_netCdf_data_intervals = self.getCurrentNetCdfDataIntervals()
+
+        # Cached NetCDF file and subgroup for parameter # TODO clear NetCDF data cache
+        self.cached_netCdf_data = {} # { parameter : { 'rootgrp' : <DataSet>, 'root_interval_str' : str, 'sub_interval_str' : str  } }
 
         # Non-gridded parameter files
         self.non_gridded_parameter_files = { 'southern-oscillation' : { 'soi' : 'South_Oscillation_Index.txt', 'enso' : '' } }
@@ -133,9 +150,27 @@ class PaleoclimateToolDataFileHelper :
                                              'precipitation' : 'climate_data_grids*bias_correction_data_grids',
                                              'sea_level_pressure' : 'climate_data_grids + bias_correction_data_grids' }
 
+    # Get data parameters
+    def getDataParameters(self) :
+        return self.data_parameters[:]
+
+    # Get data parameters required
+    def getDataParametersRequired(self, parameter_group, parameter_name) :
+        return self.parameter_calculation[parameter_group][parameter_name]['parameters']
+    
+    # Get climate data download intervals
+    def getClimateDataDownloadIntervals(self) :
+        return self.climate_data_download_intervals[:]
+
+    # Use downloaded NetCDF data files
+    def useNetCdfData(self, use=None) :
+        if use != None :
+            self.use_netCdf_data = use
+        return self.use_netCdf_data
+
     # Get the month codes
     def getMonthCodes(self) :
-        return self.month_codes
+        return self.month_codes[:]
 
     # Set climate data source
     def setClimateDataSource(self, code) : # url or local
@@ -143,7 +178,7 @@ class PaleoclimateToolDataFileHelper :
 
     # Set climate data url
     def setClimateDataUrl(self, url) :
-        if url[-1] != '/' :
+        if url and url[-1] != '/' :
             url += '/'
         self.climate_data_url = url
 
@@ -158,6 +193,17 @@ class PaleoclimateToolDataFileHelper :
             if password != None :
                 self.climate_data_proxy['password'] = password
 
+    # Setup proxy for web-based climate data when required
+    def setupClimateDataProxy(self) :
+        if self.climate_data_proxy['active'] and self.climate_data_proxy['url'].replace('http://','').find(':') :
+            proxy_host, proxy_port = self.climate_data_proxy['url'].replace('http://','').replace('/','').split(':')
+            if self.climate_data_proxy['username'] and self.climate_data_proxy['password'] :
+                proxy_handler = url.ProxyHandler({ 'http' : 'http://'+self.climate_data_proxy['username']+':'+self.climate_data_proxy['password']+'@'+proxy_host+':'+proxy_port })
+            else :
+                proxy_handler = url.ProxyHandler({ 'http' : 'http://'+proxy_host+':'+proxy_port })
+            proxy_opener = url.build_opener(proxy_handler)
+            url.install_opener(proxy_opener)
+
     # Set climate data directory
     def setClimateDataDirectory(self, path) :
         self.climate_data_directory = self.splitPath(path)
@@ -170,12 +216,114 @@ class PaleoclimateToolDataFileHelper :
     def getClimateDataUrl(self) :
         return self.climate_data_url
 
+    # Check climate data url
+    def checkClimateDataUrl(self) :
+        try :
+            current_url_file = url.urlopen((self.climate_data_url + 'current_url.txt'))
+            current_url_file.close()
+            return True
+        except Exception, e :
+            current_url_file = url.urlopen('http://homepage.cs.latrobe.edu.au/shaythorne/paleoview/current_url.txt')
+            self.climate_data_url = current_url_file.readline()
+            current_url_file.close()
+            return False
+
     # Climate data is present
-    def climateDataIsPresent(self) :
+    def climateDataIsPresent(self, parameters=['any'], years={ 'from_year_ad' : None, 'until_year_ad' : None }) :
         if self.climate_data_source == 'local' :
-            return path.exists(path.join(self.climate_data_directory['path'], self.parameter_directory_code_map['mean_temperature']))
+            if parameters == ['any'] :
+                climate_data_found = False
+                for parameter, directory_code in self.parameter_directory_code_map.items() :
+                    if self.use_netCdf_data :
+                        for interval_label in self.climateDataDownloadIntervalsRequired({ 'from_year_ad' : (1950-22000), 'until_year_ad' : 1989 }) :
+                            climate_data_found = (climate_data_found or self.climateDataDownloadIntervalPresent(parameter, interval_label))
+                    else : # raw data
+                        climate_data_found = (climate_data_found or path.exists(path.join(self.climate_data_directory['path'], directory_code)))
+            elif parameters :
+                climate_data_found = []
+                if years['from_year_ad'] != None and years['until_year_ad'] != None :
+                    for parameter in parameters :
+                        if self.use_netCdf_data :
+                            for interval_label in self.climateDataDownloadIntervalsRequired(years) :
+                                climate_data_found.append(self.climateDataDownloadIntervalPresent(parameter, interval_label))
+                        else : # raw data only checks directory presence for parameters
+                            climate_data_found.append(path.exists(path.join(self.climate_data_directory['path'], self.parameter_directory_code_map[parameter])))
+                    climate_data_found = np.array(climate_data_found).all()
+                else :
+                    for parameter in parameters :
+                        if self.use_netCdf_data :
+                            parameter_data_found = False
+                            if self.use_netCdf_data : # Check for NetCDF data file
+                                for interval_label in self.climateDataDownloadIntervalsRequired({ 'from_year_ad' : (1950-22000), 'until_year_ad' : 1989 }) :
+                                    parameter_data_found = (parameter_data_found or self.climateDataDownloadIntervalPresent(parameter, interval_label))
+                            climate_data_found.append(parameter_data_found)
+                        else : # raw data only checks directory presence for parameters
+                            climate_data_found.append(path.exists(path.join(self.climate_data_directory['path'], self.parameter_directory_code_map[parameter])))
+                climate_data_found = np.array(climate_data_found).all()
+            return climate_data_found
         else : # url
             return True
+
+    # Climate data download intervals required
+    def climateDataDownloadIntervalsRequired(self, years={ 'from_year_ad' : None, 'until_year_ad' : None }) :
+        download_intervals_required = []
+        for interval_label in self.climate_data_download_intervals :
+            download_interval = self.convertDataDownloadIntervalLabelToAD(interval_label)
+            if ( (download_interval['from_year_ad'] <= years['from_year_ad'] <= download_interval['until_year_ad']) or
+                 (download_interval['from_year_ad'] <= years['until_year_ad'] <= download_interval['until_year_ad']) or
+                 (years['from_year_ad'] <= download_interval['from_year_ad'] <= years['until_year_ad']) ) :
+                download_intervals_required.append(interval_label)
+        return download_intervals_required
+
+    # Method clears NetCDF data file cache
+    def clearNetCdfDataCache(self) :
+        for parameter, cached_data in self.cached_netCdf_data.items() :
+            cached_data['rootgrp'].close()
+            self.cached_netCdf_data.pop(parameter)
+
+    # Climate data download interval present
+    def climateDataDownloadIntervalPresent(self, parameter, interval_label) :
+
+        if self.use_netCdf_data : # Check for NetCDF data file
+
+            expected_netCdf_file = (parameter+'-'+interval_label+'.nc')
+            return path.exists(path.join(self.climate_data_directory['path'], expected_netCdf_file))
+
+        else : # Check for raw climate data
+
+            # Calculate middle year
+            download_interval = self.convertDataDownloadIntervalLabelToAD(interval_label)
+            middle_year_ad = int((download_interval['from_year_ad'] + download_interval['until_year_ad'])/2)
+
+            # Check for middle year (first month) data grid file
+            present = self.climateDataFilePresent(parameter, middle_year_ad, 0)['present']
+            return present
+
+    # Climate data file present
+    def climateDataFilePresent(self, parameter, year_ad, month_index) :
+        if year_ad > 1950 :
+            year_str = str(year_ad) + 'AD'
+        else :
+            year_str = str(1950 - year_ad) + 'BP'
+        data_grid_file = self.climate_data_file_template.replace('{parameter_directory_code}', self.parameter_directory_code_map[parameter])
+        data_grid_file = data_grid_file.replace('{year}{postfix}', year_str)
+        data_grid_file = data_grid_file.replace('{parameter_file_code}', self.parameter_file_code_map[parameter])
+        data_grid_file = data_grid_file.replace('{month_code}', self.month_codes[month_index])
+        return { 'data_file' : data_grid_file, 'present' : path.exists(path.join(self.climate_data_directory['path'], data_grid_file)) }
+
+    # convert data download interval label to AD year interval
+    def convertDataDownloadIntervalLabelToAD(self, interval_label) :
+        from_year = int(interval_label.split('-')[0][:-2])
+        from_postfix = interval_label.split('-')[0][-2:]
+        from_year_ad = from_year
+        if from_postfix == 'BP' :
+            from_year_ad = 1950 - from_year
+        until_year = int(interval_label.split('-')[1][:-2])
+        until_postfix = interval_label.split('-')[1][-2:]
+        until_year_ad = until_year
+        if until_postfix == 'BP' :
+            until_year_ad = 1950 - until_year
+        return { 'from_year_ad' : from_year_ad, 'until_year_ad' : until_year_ad }
 
     # get generation status
     def getGenerationStatus(self) :
@@ -304,15 +452,11 @@ class PaleoclimateToolDataFileHelper :
         if type(region_mask) != np.ndarray and type(region_mask) != dict :
             region_mask = np.zeros((self.grid_height, self.grid_width)) + region_mask
 
+        # Update current NetCDF data file availability
+        self.getCurrentNetCdfDataIntervals()
+        
         # Setup proxy for web-based climate data when required
-        if self.climate_data_proxy['active'] and self.climate_data_proxy['url'].replace('http://','').find(':') :
-            proxy_host, proxy_port = self.climate_data_proxy['url'].replace('http://','').replace('/','').split(':')
-            if self.climate_data_proxy['username'] and self.climate_data_proxy['password'] :
-                proxy_handler = url.ProxyHandler({ 'http' : 'http://'+self.climate_data_proxy['username']+':'+self.climate_data_proxy['password']+'@'+proxy_host+':'+proxy_port })
-            else :
-                proxy_handler = url.ProxyHandler({ 'http' : 'http://'+proxy_host+':'+proxy_port })
-            proxy_opener = url.build_opener(proxy_handler)
-            url.install_opener(proxy_opener)
+        self.setupClimateDataProxy()
 
         # Reset bias correction data cache
         self.cached_bias_correction_data_grids = {}
@@ -608,35 +752,87 @@ class PaleoclimateToolDataFileHelper :
     # Method loads climate data for a selected month of a given year
     def loadClimateDataGrid(self, parameter, year_ad, month_index) : # TODO: load from URL
         #print 'loadClimateDataGrid:', parameter, year_ad, month_index
+
+        # Year and postfix
         postfix = 'AD'
         year = year_ad
         if year_ad <= 1950 :
             postfix = 'BP'
             year = 1950 - year_ad
-        if self.parameter_directory_code_map.has_key(parameter) :
-            data_file = self.climate_data_file_template.replace('{parameter_directory_code}', self.parameter_directory_code_map[parameter])
-            data_file = data_file.replace('{year}', str(year))
-            data_file = data_file.replace('{postfix}', postfix)
-            data_file = data_file.replace('{parameter_file_code}', self.parameter_file_code_map[parameter])
-            data_file = data_file.replace('{month_code}', self.month_codes[month_index])
-            if self.climate_data_source == 'url' :
-                data_file_url = self.resolveClimateDataUrl(parameter, data_file)
-                try :
-                    data_file = url.urlopen(data_file_url)
-                    return np.genfromtxt(data_file)
-                except Exception, e :
-                    exception_message = 'Could not open ' + parameter.replace('_', ' ').title() + ' data for ' + self.month_names[month_index] + ' ' + str(year) + postfix + '. Expected climate data file at: \n' + data_file_url + '\n' + str(e)
-                    raise Exception(exception_message)
-            else :
-                data_file = path.join(self.climate_data_directory['path'], data_file)
-                if path.exists(data_file) :
-                    return np.genfromtxt(data_file)
+        year_str = str(year) + postfix
+
+        # Original code handles individual local or networked raw files
+        if (self.climate_data_source == 'local' and not self.use_netCdf_data) or self.climate_data_source == 'url' :
+            if self.parameter_directory_code_map.has_key(parameter) :
+                data_file = self.climate_data_file_template.replace('{parameter_directory_code}', self.parameter_directory_code_map[parameter])
+                data_file = data_file.replace('{year}', str(year))
+                data_file = data_file.replace('{postfix}', postfix)
+                data_file = data_file.replace('{parameter_file_code}', self.parameter_file_code_map[parameter])
+                data_file = data_file.replace('{month_code}', self.month_codes[month_index])
+                if self.climate_data_source == 'url' :
+                    data_file_url = self.resolveClimateDataUrl(parameter, data_file)
+                    try :
+                        data_file = url.urlopen(data_file_url)
+                        return np.genfromtxt(data_file)
+                    except Exception, e :
+                        exception_message = 'Could not open ' + parameter.replace('_', ' ').title() + ' data for ' + self.month_names[month_index] + ' ' + str(year) + postfix + '. Expected climate data file at: \n' + data_file_url + '\n' + str(e)
+                        raise Exception(exception_message)
                 else :
-                    #print 'TODO: handle missing climate data:', path.join(self.splitPath(split_path['directory'])['name'], split_path['name'])
-                    exception_message = 'Could not find ' + parameter.replace('_', ' ').title() + ' data for ' + self.month_names[month_index] + ' ' + str(year) + postfix + '. Expected climate data file: \n' + data_file
-                    raise Exception(exception_message)
-        else :
-            raise Exception('The data location for ' + parameter.replace('_', ' ').title() + ' has not been defined yet')
+                    data_file = path.join(self.climate_data_directory['path'], data_file)
+                    if path.exists(data_file) :
+                        return np.genfromtxt(data_file)
+                    else :
+                        #print 'TODO: handle missing climate data:', path.join(self.splitPath(split_path['directory'])['name'], split_path['name'])
+                        exception_message = 'Could not find ' + parameter.replace('_', ' ').title() + ' data for ' + self.month_names[month_index] + ' ' + str(year) + postfix + '. Expected climate data file: \n' + data_file
+                        raise Exception(exception_message)
+            else :
+                raise Exception('The data location for ' + parameter.replace('_', ' ').title() + ' has not been defined yet')
+
+        # Utilise local NetCDF files when present
+        elif (self.climate_data_source == 'local' and self.use_netCdf_data) :
+
+            # Check NetCDF cache for data first
+            if self.cached_netCdf_data.has_key(parameter) :
+
+                # Get root group DataSet object
+                rootgrp = self.cached_netCdf_data[parameter]['rootgrp']
+
+                # Check current subgroup
+                sub_interval_ad = self.convertDataIntervalLabelToAD(self.cached_netCdf_data[parameter]['sub_interval_str'])
+                if sub_interval_ad['from_year_ad'] <= year_ad <= sub_interval_ad['until_year_ad'] :
+                    subgroup = rootgrp.groups[self.cached_netCdf_data[parameter]['sub_interval_str']]
+                    return subgroup.variables[year_str][month_index]
+
+##                # Check current rootgrp
+##                for sub_interval_str in rootgrp.groups.keys() :
+##                    sub_interval_ad = self.convertDataIntervalLabelToAD(sub_interval_str)
+##                    if sub_interval_ad['from_year_ad'] <= year_ad <= sub_interval_ad['until_year_ad'] :
+##                        self.cached_netCdf_data[parameter]['sub_interval_str'] = sub_interval_str
+##                        return rootgrp.groups[sub_interval_str].variables[year_str][month_index]
+
+                # Not found - clear cache for parameter
+                rootgrp.close()
+                self.cached_netCdf_data.pop(parameter)
+
+            # Check available NetCDF data files
+            for root_interval_str in self.current_netCdf_data_intervals[parameter] :
+                root_interval_ad = self.convertDataIntervalLabelToAD(root_interval_str)
+                root_from_year_ad = max((root_interval_ad['from_year_ad'] - self.download_data_window), (1950 - 22000))
+                root_until_year_ad = min((root_interval_ad['until_year_ad'] + self.download_data_window), 1989)
+                if root_from_year_ad <= year_ad <= root_until_year_ad :
+                    try :
+                        rootgrp = Dataset(path.join(self.climate_data_directory['path'], (parameter+'-'+root_interval_str+'.nc')), 'r')
+                        for sub_interval_str in rootgrp.groups.keys() :
+                            sub_interval_ad = self.convertDataIntervalLabelToAD(sub_interval_str)
+                            if sub_interval_ad['from_year_ad'] <= year_ad <= sub_interval_ad['until_year_ad'] :
+                                self.cached_netCdf_data[parameter] = { 'rootgrp' : rootgrp, 'root_interval_str' : root_interval_str, 'sub_interval_str' : sub_interval_str  }
+                                return rootgrp.groups[sub_interval_str].variables[year_str][month_index]
+                    except Exception, e :
+                        exception_message = 'Could not open NetCDF data file: ' + path.join(self.climate_data_directory['path'], (parameter+'-'+root_interval_str+'.nc')) + '\n' + str(e)
+                        raise Exception(exception_message)
+
+            # Still not found
+            raise Exception('Could not find NetCDF data for '+ parameter.replace('_', ' ').title() + ' data for ' + self.month_names[month_index] + ' ' + str(year) + postfix + '.\n')
 
     # Method loads bias correction data for the selected months
     def loadBiasCorrectionDataGrids(self, parameter, month_indices) :
@@ -822,14 +1018,11 @@ class PaleoclimateToolDataFileHelper :
                 f.write(full_log_entry)
             f.close()
 
-    # Method resolves the URL for a given data file. Includes URL mappings for Dropbox files.
+    # Method resolves the URL for a given data file.
     def resolveClimateDataUrl(self, parameter, data_file) :
         #print 'resolveClimateDataUrl', parameter, data_file
         data_file = data_file.replace('\\','/')
-        if self.climate_data_url == 'https://dl.dropboxusercontent.com/sh/upmj85imokepgts/' :
-            return self.climate_data_url + self.dropbox_url_helper.resolveDropboxCodeForFile(parameter, data_file) + '/' + data_file
-        else :
-            return self.climate_data_url + data_file
+        return self.climate_data_url + data_file
 
     # Method generates a Word (docx) table from a data frame and title : discontinued use
     def generateWordTable(self, data_frame, title, ordered_columns=None, file_path=None) :
@@ -860,3 +1053,211 @@ class PaleoclimateToolDataFileHelper :
         f = open(file_path, 'w')
         f.write(title + '\n' + '-'*len(title) + '\n' + data_frame.to_string(index=False, float_format=(lambda f: '%.3f'%f)))
         f.close()
+
+    # Get Current NetCDF Data Intervals and use NetCDF data files if some are present
+    def getCurrentNetCdfDataIntervals(self) :
+        self.current_netCdf_data_intervals = {}
+        for parameter in self.parameter_directory_code_map.keys() :
+            self.current_netCdf_data_intervals[parameter] = []
+            for data_interval_str in self.climate_data_download_intervals :
+                expected_netCdf_file = (parameter+'-'+data_interval_str+'.nc')
+                if path.exists(path.join(self.climate_data_directory['path'], expected_netCdf_file)) :
+                    self.current_netCdf_data_intervals[parameter].append(data_interval_str)
+                    self.use_netCdf_data = True
+        return self.current_netCdf_data_intervals
+                
+    # Convert data interval label to AD year interval
+    def convertDataIntervalLabelToAD(self, interval_label) :
+        from_year = int(interval_label.split('-')[0][:-2])
+        from_postfix = interval_label.split('-')[0][-2:]
+        from_year_ad = from_year
+        if from_postfix == 'BP' :
+            from_year_ad = 1950 - from_year
+        until_year = int(interval_label.split('-')[1][:-2])
+        until_postfix = interval_label.split('-')[1][-2:]
+        until_year_ad = until_year
+        if until_postfix == 'BP' :
+            until_year_ad = 1950 - until_year
+        return { 'from_year_ad' : from_year_ad, 'until_year_ad' : until_year_ad }
+
+    # Convert AD year interval to data interval label
+    def convertAdIntervalToDataLabel(self, from_year_ad, until_year_ad) :
+        if from_year_ad > 1950 :
+            from_year_str = str(from_year_ad) + 'AD'
+        else :
+            from_year_str = str(1950 - from_year_ad) + 'BP'
+        if until_year_ad > 1950 :
+            until_year_str = str(until_year_ad) + 'AD'
+        else :
+            until_year_str = str(1950 - until_year_ad) + 'BP'
+        return from_year_str + '-' + until_year_str
+
+    # Method generates a NetCDF file for a climate data parameter for the specified interval 
+    def generateNetCdfClimateData(self, parameter, from_year_ad, until_year_ad, min_year_ad=(1950-22000), max_year_ad=1989, zlib=True, decimals=None) :
+
+        # Construct NetCDF file path
+        data_interval_str = self.convertAdIntervalToDataLabel(from_year_ad, until_year_ad)
+        [from_year_str, until_year_str] = data_interval_str.split('-')
+        output_file_path = path.join(self.file_generation_directory['path'], (parameter+'-'+data_interval_str+'.nc'))
+        print 'Generating NetCDF data file for ' + parameter.replace('_',' ').title() + ' ' + data_interval_str ###
+
+        # Resolve data format. Assumes data in all files are the same as the first.
+        first_grid_file = self.climate_data_file_template.replace('{parameter_directory_code}', self.parameter_directory_code_map[parameter])
+        first_grid_file = first_grid_file.replace('{year}{postfix}', from_year_str)
+        first_grid_file = first_grid_file.replace('{parameter_file_code}', self.parameter_file_code_map[parameter])
+        first_grid_file = first_grid_file.replace('{month_code}', self.month_codes[0])
+        first_line = open(path.join(self.climate_data_directory['path'], first_grid_file), 'r').readline()
+        data_width = len(first_line.split('.')[1]) + 1
+        if decimals :
+            data_decimals = decimals
+        else :
+            data_decimals = len(first_line.split('.')[1].split(' '))
+
+        # Construct NetCDF dataset file
+        rootgrp = Dataset(output_file_path, 'w')
+        rootgrp.Conventions = 'CF-1.6'
+        rootgrp.title = parameter.replace('_',' ').title() + ' ' + from_year_str + ' - ' + until_year_str
+        rootgrp.institution = 'Global Ecology Lab'
+        rootgrp.source = 'https://github.com/GlobalEcologyLab/PaleoView'
+        rootgrp.history = '[' + strftime("%Y-%m-%d %H:%M", localtime()) + ']' + 'Created netCDF4 zlib=True dataset.'
+        rootgrp.description = parameter.replace('_',' ').title() + ' ' + from_year_str + ' - ' + until_year_str
+        rootgrp.createDimension('single', 1)
+        rootgrp.createDimension('month', 12)
+        rootgrp.createDimension('lat', 72)
+        rootgrp.createDimension('lon', 144)
+        window = rootgrp.createVariable('window','i4',('single',))
+        width = rootgrp.createVariable('width','i4',('single',))
+        decimals = rootgrp.createVariable('decimals','i4',('single',))
+        months = rootgrp.createVariable('months','i4',('month',), zlib=zlib)
+        latitudes = rootgrp.createVariable('latitudes','f8',('lat',), zlib=zlib)
+        longitudes = rootgrp.createVariable('longitudes','f8',('lon',), zlib=zlib)
+        latitudes.units = 'degrees north'
+        longitudes.units = 'degrees east'
+        window[:] = np.array(self.download_data_window)
+        width[:] = np.array(data_width)
+        decimals[:] = np.array(data_decimals)
+        months[:] = np.array(range(12)) + 1
+        latitudes[:] = np.arange(88.75,-88.751,-2.5)
+        longitudes[:] = np.arange(-178.75,178.751,2.5)
+
+        # Add overlap to allow for interval window
+        from_year_ad = max((from_year_ad - self.download_data_window), min_year_ad)
+        until_year_ad = min((until_year_ad + self.download_data_window), max_year_ad)
+
+        # Create subgoup intervals from start, 1000 year BP boundaries, and AD section
+        group_from = [from_year_ad]
+        group_until = []
+        bp_1000_boundaries = (1950 - np.arange(((1950-from_year_ad)/1000*1000), (1950-until_year_ad)-1, -1000)).tolist()
+        if from_year_ad in bp_1000_boundaries :
+            bp_1000_boundaries.pop(0)
+        group_from.extend(bp_1000_boundaries)
+        if until_year_ad in bp_1000_boundaries :
+            bp_1000_boundaries.pop()
+        group_until.extend(bp_1000_boundaries)
+        if from_year_ad < 1950 and until_year_ad > 1950 :
+            group_from[-1] = 1951
+        group_until.append(until_year_ad)
+        subgroup_ad_intervals = np.array([group_from, group_until]).transpose()
+
+        # Create subgroups and variables for each year's data within each subgroup
+        for [subgroup_from_year_ad, subgroup_until_year_ad] in subgroup_ad_intervals :
+
+            # Create subgrooup for interval
+            subgroup_interval_str = self.convertAdIntervalToDataLabel(subgroup_from_year_ad, subgroup_until_year_ad)
+            subgroup = rootgrp.createGroup(subgroup_interval_str)
+
+            # Add a variable for each year within subgroups
+            for year_ad in range(subgroup_from_year_ad, subgroup_until_year_ad+1) : 
+
+                # Create year label 
+                if year_ad > 1950 :
+                    year_str = str(year_ad) + 'AD'
+                else :
+                    year_str = str(1950 - year_ad) + 'BP'
+
+                # Load the year's climate data grids
+                year_grids = []
+                for i in range(12) :
+                    year_grids.append(self.loadClimateDataGrid(parameter, year_ad, i))
+
+                # Load grid data into subgroup variable using year label
+                data = subgroup.createVariable(year_str,'f8',('month','lat','lon',), zlib=zlib, least_significant_digit=(data_decimals+1)) # one more decimal than formatted
+                data.units = self.parameter_unit_string[parameter]
+                data.long_name = parameter.replace('_',' ').title()
+                data.standard_name = parameter
+                data[:,:,:] = np.array(year_grids)
+
+                if year_ad % 100 == 0 : ### 
+                    print year_str, strftime("%Y-%m-%d %H:%M", localtime())
+
+            # Re-open NetCDF file for every subgroup (avoids python crash)
+            rootgrp.close()
+            rootgrp = Dataset(output_file_path, 'a')
+
+        # Close NetCDF file
+        rootgrp.close()
+
+    # Method downloads and unpacks a NetCDF file for a climate data parameter for the interval expressed as a label
+    def downloadClimateDataInterval(self, parameter, interval_label, delimiter='', retain_netCdf_file=True, unpack=False) :
+        interval = self.convertDataIntervalLabelToAD(interval_label)
+        self.downloadClimateData(parameter, interval['from_year_ad'], interval['until_year_ad'], delimiter=delimiter, retain_netCdf_file=retain_netCdf_file, unpack=unpack)
+
+    # Method downloads and unpacks a NetCDF file for a climate data parameter for the specified interval 
+    def downloadClimateData(self, parameter, from_year_ad, until_year_ad, delimiter='', retain_netCdf_file=True, unpack=False) :
+
+        # Construct NetCDF file name
+        data_interval_str = self.convertAdIntervalToDataLabel(from_year_ad, until_year_ad)
+        netCdf_file = (parameter+'-'+data_interval_str+'.nc')
+
+        # Setup proxy for web-based climate data when required
+        self.setupClimateDataProxy()
+
+        # Download NetCDF file
+        local_netCdf_path = path.join(self.climate_data_directory['path'], netCdf_file)
+        try :
+            check_connection = url.urlopen((self.climate_data_url + netCdf_file))
+            check_connection.close()
+            urllib.urlretrieve((self.climate_data_url + netCdf_file), local_netCdf_path, reporthook=self.netCdfDownloadProgress)
+        except Exception, e :
+            exception_message = 'Could not open ' + netCdf_file + '\nExpected climate data NetCDF file at: \n' + self.climate_data_url + '\n' + str(e)
+            raise Exception(exception_message)
+       
+        # Unpack climate data files from NetCDF dataset file
+        if unpack :
+            rootgrp = Dataset(local_netCdf_path, 'r')
+            width = rootgrp.variables['width'][0]
+            decimals = rootgrp.variables['decimals'][0]
+            if not(path.exists(path.join(self.climate_data_directory['path'], self.parameter_directory_code_map[parameter]))) :
+                self.createDirectoryPath(path.join(self.climate_data_directory['path'], self.parameter_directory_code_map[parameter]))
+            for subgroup_interval_str, subgroup in rootgrp.groups.items() :
+                for year_str, year_variable in subgroup.variables.items() :
+                    if self.parameter_directory_code_map.has_key(parameter) :
+                        data_file_template = self.climate_data_file_template.replace('{parameter_directory_code}', self.parameter_directory_code_map[parameter])
+                        data_file_template = data_file_template.replace('{year}{postfix}', year_str)
+                        data_file_template = data_file_template.replace('{parameter_file_code}', self.parameter_file_code_map[parameter])
+                        for month_index in range(12) :
+                            data_file_path = path.join(self.climate_data_directory['path'], data_file_template.replace('{month_code}', self.month_codes[month_index]))
+                            np.savetxt(data_file_path, subgroup.variables[year_str][month_index], fmt='%'+str(width)+'.'+str(decimals)+ 'f', delimiter=delimiter)
+                # Re-open NetCDF file for every subgroup (avoids python crash)
+                rootgrp.close()
+                rootgrp = Dataset(local_netCdf_path, 'r')
+            rootgrp.close()
+
+        # Remove downloaded NetCDF file when not retained
+        if not retain_netCdf_file :
+            remove(local_netCdf_path)
+
+    # Method tracks download progress and updates status bar
+    def netCdfDownloadProgress(self, count, block_size, total_size) :
+
+        if self.application_gui != None :
+
+            # Set status maximum if not already set
+            if self.application_gui.climate_data_download_status_bar['maximum'] == 1 :
+                self.application_gui.climate_data_download_status_bar['maximum'] = total_size/block_size/1000
+                self.application_gui.update_idletasks()
+
+            # Set status value every 1000 blocks
+            if not count % 1000 :
+                self.application_gui.climate_data_download_status_bar['value'] += 1
+                self.application_gui.update_idletasks()

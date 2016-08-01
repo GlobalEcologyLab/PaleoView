@@ -39,7 +39,7 @@ MAC_VERSION = False
 from PaleoclimateToolDataFileHelper import PaleoclimateToolDataFileHelper
 
 # TEST FLAG: Write stdout and stderr to console (not log files)
-DEBUG = True
+DEBUG = False
 
 # Code for encrypting/decrypting the proxy password when saved/retrieved from the config file
 BLOCK_SIZE = 32
@@ -51,7 +51,6 @@ PASSWORDKEY = '\xe7Z\xb2\xc9\x03\xb4\x8c\x04A\xfe\x97\xc3\xf9\xc7\xd2\x1c\xb9\x1
 
 ## Application GUI
 ## * Constructs tool GUI components
-## * Defines and follows a workflow of step completion
 ## * Performs tool operations utilising climate data helper module
 class ApplicationGUI(tk.Frame) :
 
@@ -73,19 +72,21 @@ class ApplicationGUI(tk.Frame) :
         self.user_application_data_directory = user_application_data_directory
 
         # Initialise config parameters
-        self.climate_data_source = 'url' # local/url
-        self.climate_data_url = 'https://dl.dropboxusercontent.com/sh/upmj85imokepgts/'
+        self.climate_data_source = 'local' # local/url
+        self.climate_data_url = 'http://203.83.208.84/'
         self.climate_data_proxy_active = False
         self.climate_data_proxy_url = 'http://example.proxy.com:80/'
         self.climate_data_proxy_username = ''
         self.climate_data_proxy_password = ''
         self.climate_data_directory = ''
+        self.climate_data_local_data_type = 'netcdf' # netcdf/raw
         self.default_file_generation_directory = ''
         self.default_file_generation_directory_set = False
         self.region_mask_directory = path.join(getcwd(), 'Map Data')
         self.bias_correction_directory = path.join(getcwd(), 'Bias Corrections')
         self.public_release = True
         self.show_extended_colour_palettes_in_advance = False
+        self.unpack_downloaded_netcdf_data = False
 
         # Current directory locations
         self.current_figure_save_directory = ''
@@ -116,7 +117,7 @@ class ApplicationGUI(tk.Frame) :
         # Maximum maps and time series points
         self.maximum_maps = 20
         self.maximum_time_series_points = 500
-        self.maximum_interval_steps = self.maximum_maps - 1 # self.maximum_time_series_points
+        self.maximum_interval_steps = self.maximum_maps - 1
 
         # Month codes, names, shortnames
         self.month_codes = self.data_file_helper.getMonthCodes()
@@ -142,13 +143,14 @@ class ApplicationGUI(tk.Frame) :
         self.tool_option_parameters = ['climate_data_source', 'climate_data_directory', 'climate_data_url', 'climate_data_proxy_active',
                                        'climate_data_proxy_url', 'climate_data_proxy_username', 'climate_data_proxy_password',
                                        'default_file_generation_directory', 'default_file_generation_directory_set', 'public_release',
-                                       'show_extended_colour_palettes_in_advance']
+                                       'show_extended_colour_palettes_in_advance', 'climate_data_local_data_type']
         self.tool_option_parameter_types = { 'climate_data_source' : str, 'climate_data_directory' : str, 'climate_data_url' : str,
                                              'climate_data_proxy_active' : bool, 'climate_data_proxy_url' : str, 'climate_data_proxy_username' : str,
                                              'climate_data_proxy_password' : str, 'default_file_generation_directory' : str,
-                                             'default_file_generation_directory_set' : bool, 'public_release' : bool, 'show_extended_colour_palettes_in_advance' : bool }
+                                             'default_file_generation_directory_set' : bool, 'public_release' : bool, 'show_extended_colour_palettes_in_advance' : bool,
+                                             'climate_data_local_data_type' : str }
 
-        # Parameter fixed range colour scheme # TODO: establish values via config
+        # Parameter fixed range colour scheme
         self.parameter_fixed_range_colour_scheme = { 'temperature' : { 'mean-temperature' : { 'value' : {}, 'delta' : {} },
                                                                        'minimum-temperature' : { 'value' : {}, 'delta' : {} },
                                                                        'maximum-temperature' : { 'value' : {}, 'delta' : {} },
@@ -196,6 +198,8 @@ class ApplicationGUI(tk.Frame) :
         self.data_file_helper.setClimateDataSource(self.climate_data_source)
         self.data_file_helper.setClimateDataUrl(self.climate_data_url)
         self.data_file_helper.setClimateDataProxy(self.climate_data_proxy_active, self.climate_data_proxy_url, self.climate_data_proxy_username, self.climate_data_proxy_password)
+        if not self.data_file_helper.checkClimateDataUrl() :
+            self.setToolOptions({ 'climate_data_url' : self.data_file_helper.getClimateDataUrl() })
         self.data_file_helper.setClimateDataDirectory(self.climate_data_directory)
         self.data_file_helper.setFileGenerationDirectory(self.default_file_generation_directory)
         self.data_file_helper.setRegionMaskDirectory(self.region_mask_directory)
@@ -413,7 +417,13 @@ class ApplicationGUI(tk.Frame) :
         self.configure_menu.add_command(label='Climate Data Location', command=self.configureClimateDataLocation)
         self.configure_menu.add_command(label='Default Output Directory', command=self.configureDefaultFileGenerationDirectory)
         self.configure_menu_indices = { 'climate_data_directory' : 1, 'default_file_generation_directory' : 2 }
-        #self.configure_menu.entryconfigure(self.configure_menu_indices['default_file_generation_directory'], state=tk.DISABLED)
+
+        # Download menu
+        self.download_menu = tk.Menu(self.menu_bar)
+        self.menu_bar.add_cascade(label='Download', menu=self.download_menu)
+        self.download_menu.entryconfigure(0, state=tk.DISABLED)
+        self.download_menu.add_command(label='Climate Data', command=self.downloadClimateData)
+        self.download_menu_indices = { 'climate_data_download' : 1 }
 
     # GUI for Step 1: Data Type
     def createDataTypeFrame(self) :
@@ -427,16 +437,12 @@ class ApplicationGUI(tk.Frame) :
         self.data_type_selection = ['Map Grid', 'Time Series']
         self.data_action_keys = ['view', 'files']
         self.data_action_selection = ['View', 'Generate Data Files']
-        #self.data_action_selection = { 'map' : ['View Map Plot', 'Generate Data Files'], 'series' : ['View Series Plot', 'Generate Data File'] }
 
         # Parameter text variables
         self.data_type_text = tk.StringVar()
         self.data_type_text.set(self.data_type_selection[0])
         self.data_action_text = tk.StringVar()
         self.data_action_text.set(self.data_action_selection[0])
-        #self.data_action_text = { 'map' : tk.StringVar(), 'series' : tk.StringVar() }
-        #self.data_action_text['map'].set(self.data_action_selection['map'][0])
-        #self.data_action_text['series'].set(self.data_action_selection['series'][0])
         
         # Register validation and selection behaviour methods
         select_data_type = self.data_type_frame.register(self.selectDataType)
@@ -452,40 +458,25 @@ class ApplicationGUI(tk.Frame) :
         self.data_action_menu = tk.OptionMenu(self.data_type_frame, self.data_action_text, *self.data_action_selection)
         self.data_action_menu.config(highlightthickness=0, anchor=tk.W)
         self.data_action_menu['menu'].config(postcommand=(forced_shift_focus, True))
-        #self.data_action_menu = {}
-        #self.data_action_menu['map'] = tk.OptionMenu(self.data_type_frame, self.data_action_text['map'], *self.data_action_selection['map'])
-        #self.data_action_menu['series'] = tk.OptionMenu(self.data_type_frame, self.data_action_text['series'], *self.data_action_selection['series'])
-        #self.data_action_menu['map'].config(highlightthickness=0, anchor=tk.W)
-        #self.data_action_menu['series'].config(highlightthickness=0, anchor=tk.W)
-        #self.data_action_menu['map']['menu'].config(postcommand=(forced_shift_focus, True))
-        #self.data_action_menu['series']['menu'].config(postcommand=(forced_shift_focus, True))
         for i, selection in enumerate(self.data_action_keys) :
             self.data_action_menu['menu'].entryconfigure(i, command=(select_data_action, selection))
-            #self.data_action_menu['map']['menu'].entryconfigure(i, command=(select_data_action, 'map', selection))
-            #self.data_action_menu['series']['menu'].entryconfigure(i, command=(select_data_action, 'series', selection))
 
         # Arrange fields on frame with labels
         row = 0
         tk.Label(self.data_type_frame, text='Data:').grid(row=row, column=0, sticky=tk.NW+tk.SW, padx=0, pady=5)
         self.data_type_menu.grid(row=row, column=1, sticky=tk.W+tk.E, padx=0, pady=5)
         self.data_action_menu.grid(row=row, column=2, columnspan=2, sticky=tk.W+tk.E, padx=5, pady=5)
-        #self.data_action_menu['series'].grid(row=row, column=2, sticky=tk.NW+tk.SE, padx=5, pady=5)
-        #self.data_action_menu['series'].grid_remove()
-        #self.data_action_menu['map'].grid(row=row, column=2, sticky=tk.NW+tk.SE, padx=5, pady=5)
-
-        #self.data_type_frame.grid(row=0, column=0, sticky=tk.NW+tk.SE, padx=5, pady=5)
 
     # GUI for Step 2: Parameter Selection
     def createParameterSelectionFrame(self) :
 
         step_number = self.process_step['parameter_selection']['number']
-        #self.parameter_selection_frame = tk.LabelFrame(self, text='Step '+step_number+': Parameter Selection', padx=10, pady=5)
         self.parameter_selection_frame = self.main_frame
         self.time_unit_frame = self.main_frame
 
         # Parameter codes, maps and selection lists
-        self.parameter_group_selection = ['Temperature', 'Precipitation', 'Humidity', 'Sea Level Pressure', 'Southern Oscillation'] # Sync array order
-        self.parameter_group_codes = ['temperature', 'precipitation', 'humidity', 'sea-level-pressure', 'southern-oscillation']     # ^
+        self.parameter_group_selection = ['Temperature', 'Precipitation', 'Humidity', 'Sea Level Pressure'] #, 'Southern Oscillation'] # Sync array order
+        self.parameter_group_codes = ['temperature', 'precipitation', 'humidity', 'sea-level-pressure'] #, 'southern-oscillation']     # ^
         self.parameter_group_code_map = {}
         self.parameter_group_selection_map = {}
         for i, group_code in enumerate(self.parameter_group_codes) :
@@ -501,8 +492,8 @@ class ApplicationGUI(tk.Frame) :
         self.parameter_via_group_codes['humidity'] = ['specific-humidity', 'relative-humidity']
         self.parameter_via_group_selection['sea-level-pressure'] = ['Sea Level Pressure']
         self.parameter_via_group_codes['sea-level-pressure'] = ['sea-level-pressure']
-        self.parameter_via_group_selection['southern-oscillation'] = ['SOI', 'ENSO']
-        self.parameter_via_group_codes['southern-oscillation'] = ['soi', 'enso']
+        #self.parameter_via_group_selection['southern-oscillation'] = ['SOI', 'ENSO']
+        #self.parameter_via_group_codes['southern-oscillation'] = ['soi', 'enso']
         self.parameter_via_group_code_map = {}
         self.parameter_via_group_selection_map = {}
         for group_code in self.parameter_group_code_map.keys() :
@@ -513,10 +504,10 @@ class ApplicationGUI(tk.Frame) :
                 self.parameter_via_group_selection_map[group_code][self.parameter_via_group_selection[group_code][i]] = parameter_code
         self.parameter_restricted_via_data_type = {}
         self.parameter_restricted_via_data_type['Map Grid'] = {}
-        self.parameter_restricted_via_data_type['Map Grid']['southern-oscillation'] = [] # non-gridded data
+        #self.parameter_restricted_via_data_type['Map Grid']['southern-oscillation'] = [] # non-gridded data
 
         # Parameter unit strings
-        self.parameter_unit_string = { 'temperature' : {}, 'precipitation' : {}, 'humidity' : {}, 'sea-level-pressure' : {}, 'southern-oscillation' : {} }
+        self.parameter_unit_string = { 'temperature' : {}, 'precipitation' : {}, 'humidity' : {}, 'sea-level-pressure' : {} } #, 'southern-oscillation' : {} }
         for parameter in ['mean-temperature', 'minimum-temperature', 'maximum-temperature', 'diurnal-temperature-range', 'annual-temperature-range'] :
             self.parameter_unit_string['temperature'][parameter] = u'\u00B0' + 'C'
         for parameter in ['isothermality', 'temperature-seasonality'] :
@@ -526,22 +517,8 @@ class ApplicationGUI(tk.Frame) :
         self.parameter_unit_string['humidity']['specific-humidity'] = 'gm/kg'
         self.parameter_unit_string['humidity']['relative-humidity'] = '%'
         self.parameter_unit_string['sea-level-pressure']['sea-level-pressure'] = 'hPa'
-        self.parameter_unit_string['southern-oscillation']['soi'] = ''
-        self.parameter_unit_string['southern-oscillation']['enso'] = ''
-
-##        # Parameter default colour palettes
-##        self.parameter_default_colour_palette = { 'temperature' : {}, 'precipitation' : {}, 'humidity' : {}, 'sea-level-pressure' : {} }
-##        for parameter in ['mean-temperature', 'minimum-temperature', 'maximum-temperature'] :
-##            self.parameter_default_colour_palette['temperature'][parameter] = { 'value' : 'blue_yellow_red', 'delta' : 'blue_yellow_red' }
-##        for parameter in ['diurnal-temperature-range', 'annual-temperature-range'] :
-##            self.parameter_default_colour_palette['temperature'][parameter] = { 'value' : 'yellow_orange_red', 'delta' : 'blue_yellow_red' }
-##        for parameter in ['isothermality', 'temperature-seasonality'] :
-##            self.parameter_default_colour_palette['temperature'][parameter] = { 'value' : 'yellow_orange_red', 'delta' : 'blue_yellow_red' }
-##        self.parameter_default_colour_palette['precipitation']['mean-precipitation'] = { 'value' : 'precip_cm', 'delta' : 'precip_delta_cm' }
-##        self.parameter_default_colour_palette['precipitation']['precipitation-seasonality'] = { 'value' : 'precip_cm', 'delta' : 'precip_delta_cm' }
-##        self.parameter_default_colour_palette['humidity']['specific-humidity'] = { 'value' : 'white_blue', 'delta' : 'humid_delta_cm' }
-##        self.parameter_default_colour_palette['humidity']['relative-humidity'] = { 'value' : 'white_blue', 'delta' : 'humid_delta_cm' }
-##        self.parameter_default_colour_palette['sea-level-pressure']['sea-level-pressure'] = { 'value' : 'yellow_orange_red', 'delta' : 'blue_yellow_red' }
+        #self.parameter_unit_string['southern-oscillation']['soi'] = ''
+        #self.parameter_unit_string['southern-oscillation']['enso'] = ''
 
         # Parameters for time units
         self.time_unit_selection = ['Month', 'Season', 'Annual', 'User-defined', 'All Months']
@@ -568,12 +545,12 @@ class ApplicationGUI(tk.Frame) :
         self.parameter_via_group_text['precipitation'] = tk.StringVar()
         self.parameter_via_group_text['humidity'] = tk.StringVar()
         self.parameter_via_group_text['sea-level-pressure'] = tk.StringVar()
-        self.parameter_via_group_text['southern-oscillation'] = tk.StringVar()
+        #self.parameter_via_group_text['southern-oscillation'] = tk.StringVar()
         self.parameter_via_group_text['temperature'].set(self.parameter_via_group_selection['temperature'][0])
         self.parameter_via_group_text['precipitation'].set(self.parameter_via_group_selection['precipitation'][0])
         self.parameter_via_group_text['humidity'].set(self.parameter_via_group_selection['humidity'][0])
         self.parameter_via_group_text['sea-level-pressure'].set(self.parameter_via_group_selection['sea-level-pressure'][0])
-        self.parameter_via_group_text['southern-oscillation'].set(self.parameter_via_group_selection['southern-oscillation'][0])
+        #self.parameter_via_group_text['southern-oscillation'].set(self.parameter_via_group_selection['southern-oscillation'][0])
         self.time_unit_text = tk.StringVar()
         self.time_unit_text.set(self.time_unit_selection[0])
         self.time_unit_months_text = tk.StringVar()
@@ -655,7 +632,6 @@ class ApplicationGUI(tk.Frame) :
     def createRegionSelectionFrame(self) :
 
         step_number = self.process_step['parameter_selection']['number']
-        #self.region_selection_frame = tk.LabelFrame(self, text='Step '+step_number+': Region Selection', padx=10, pady=5)
         self.region_selection_frame = self.main_frame
 
         # Region selection lists
@@ -756,13 +732,10 @@ class ApplicationGUI(tk.Frame) :
         self.region_selection_menu.grid(row=row, column=1, sticky=tk.W+tk.E, padx=0, pady=5)
         self.view_edit_region_button.grid(row=row, column=2, columnspan=2, sticky=tk.W, padx=5, pady=5)
 
-        #self.parameter_selection_frame.grid(row=1, column=0, sticky=tk.NW+tk.SE, padx=5, pady=0)
-
     # GUI for Step 4: Period
     def createPeriodIntervalFrame(self) :
 
         step_number = self.process_step['period_interval']['number']
-        #self.data_type_frame = tk.LabelFrame(self, text='Step '+step_number+': Data Type', padx=10, pady=5)
         self.period_interval_frame = self.main_frame
 
         # Period and interval lists
@@ -811,7 +784,6 @@ class ApplicationGUI(tk.Frame) :
         self.period_postfix_menu = {}
         self.period_postfix_menu['from'] = tk.OptionMenu(period_from_frame, self.period_postfix_text['from'], *self.period_postfix_selection)
         self.period_postfix_menu['until'] = tk.OptionMenu(period_until_frame, self.period_postfix_text['until'], *self.period_postfix_selection)
-        #self.period_postfix_menu['until'] = tk.Menubutton(period_until_frame, textvariable=self.period_postfix_text['until']) #, relief=tk.RAISED, bd=2)
         self.period_postfix_menu['from'].config(highlightthickness=0, anchor=tk.W)
         self.period_postfix_menu['until'].config(highlightthickness=0, anchor=tk.W)
         self.period_postfix_menu['from']['menu'].config(postcommand=(forced_shift_focus, True, 'from'))
@@ -868,8 +840,6 @@ class ApplicationGUI(tk.Frame) :
         self.period_interval_frame.columnconfigure(2, weight=1)
         self.period_interval_frame.columnconfigure(3, weight=1000)
 
-        #self.data_type_frame.grid(row=0, column=0, sticky=tk.NW+tk.SE, padx=5, pady=5)
-
     # Initilisation for Step 4: Set initial Period Interval Values
     def setInitialPeriodIntervalValues(self) :
         self.period_text['from'].set(str(self.current_valid_period_value['from']))
@@ -882,7 +852,6 @@ class ApplicationGUI(tk.Frame) :
     def createDeltaFrame(self) :
 
         step_number = self.process_step['delta']['number']
-        #generation_frame = tk.LabelFrame(self, text='Step '+step_number+': Downscale Generation', padx=10, pady=5)
         self.delta_frame = self.main_frame
 
         # Delta reference period lists
@@ -894,7 +863,7 @@ class ApplicationGUI(tk.Frame) :
         self.delta_reference_interval_post_text = { 'previous' : ' (from)', 'next' : ' (until)', 'present-day' : ' (present day)', 'oldest-record' : ' (oldest record)', 'user-defined' : 'User-defined' }
         self.utilise_delta_pre_text = { 'view' : 'View', 'files' : 'Generate' }
         self.utilise_delta_post_text = ' change relative to:'
-        self.delta_as_percent_parameters = { 'temperature' : ['isothermality', 'temperature-seasonality'], 'precipitation' : ['mean-precipitation', 'precipitation-seasonality'], 'humidity' : [], 'sea-level-pressure' : [], 'southern-oscillation' : [] }
+        self.delta_as_percent_parameters = { 'temperature' : ['isothermality', 'temperature-seasonality'], 'precipitation' : ['mean-precipitation', 'precipitation-seasonality'], 'humidity' : [], 'sea-level-pressure' : [] } #, 'southern-oscillation' : [] }
         self.delta_as_percent_parameters_defaults = { 'temperature' : { 'isothermality' : True, 'temperature-seasonality' : True },
                                                       'precipitation' : { 'mean-precipitation' : True, 'precipitation-seasonality' : True } }
 
@@ -927,7 +896,6 @@ class ApplicationGUI(tk.Frame) :
         self.delta_reference_interval_menu['menu'].config(postcommand=(forced_shift_focus, True))
         for i, code in enumerate(self.delta_reference_period_codes) :
             self.delta_reference_interval_menu['menu'].entryconfigure(i, command=(select_delta_reference_interval, code))
-        #self.delta_reference_interval_menu['menu'].entryconfigure(self.delta_reference_period_codes.index('next'), state=tk.DISABLED)
 
         self.current_delta_user_defined_reference_values = range(0, 1989, 20)
         self.previous_delta_user_defined_reference_text_value = str(self.delta_reference_value['user-defined']['year'])
@@ -964,7 +932,6 @@ class ApplicationGUI(tk.Frame) :
     def createBiasCorrectionFrame(self) :
 
         step_number = self.process_step['bias_correction']['number']
-        #bias_correction_frame = tk.LabelFrame(self, text='Step '+step_number+': Downscale Generation', padx=10, pady=5)
         self.bias_correction_frame = self.main_frame
 
         # Delta text variables
@@ -992,7 +959,6 @@ class ApplicationGUI(tk.Frame) :
     def createGenerationFrame(self) :
 
         step_number = self.process_step['generation']['number']
-        #generation_frame = tk.LabelFrame(self, text='Step '+step_number+': Downscale Generation', padx=10, pady=5)
         self.generation_frame = self.main_frame
         self.generation_options = { 'view' : { 'map' : 'View map grid plots', 'series' : 'View series plot' },
                                     'files' : { 'map' : 'Generate the grid data files', 'series' : 'Generate the series data file' } }
@@ -1073,13 +1039,10 @@ class ApplicationGUI(tk.Frame) :
         self.generation_status_bar.grid(row=row, column=0, columnspan=4, sticky=tk.NW+tk.SE, padx=0, pady=5)
         self.generation_status_bar.grid_remove()
 
-        #generation_frame.grid(row=2, column=0, sticky=tk.NW+tk.SE, padx=5, pady=5)
-
     ## Menu Methods ################################################################################################################################################
 
     # Menu Method: Edit map options
     def editMapOptions(self) :
-        #print 'TODO: editMapOptions'
 
         self.focus_set()
         
@@ -1103,7 +1066,6 @@ class ApplicationGUI(tk.Frame) :
         
     # Menu Method: Create Map Options Window
     def createMapOptionsWindow(self) :
-        #print 'TODO: createMapOptionsWindow'
 
         # Create the view LHS distribution window
         if hasattr(self, 'view_climate_data_window') and self.view_climate_data_window.children and self.current_view_climate_data_window_type == 'map' :
@@ -1125,14 +1087,10 @@ class ApplicationGUI(tk.Frame) :
         for i, selection in enumerate(self.map_colour_schemes) :
             self.map_colour_scheme_menu['menu'].entryconfigure(i, command=(select_map_colour_scheme, selection))
         self.map_colour_scheme_menu.grid(row=0, column=2, padx=5, pady=5, sticky=tk.W)
-        #tk.Label(self.edit_map_options_window, text='', padx=0).grid(row=0, column=3, sticky=tk.NW+tk.SW, padx=0, pady=0)
 
         # Create Map Colour Palette Selection
         tk.Label(self.edit_map_options_window, text='Colour palette:', padx=0).grid(row=1, column=0, columnspan=2, sticky=tk.NW, padx=5, pady=0)
         tk.Label(self.edit_map_options_window, text='', padx=0).grid(row=2, column=0, sticky=tk.NW, padx=10, pady=0)
-        #self.auto_map_colour_palette_int = tk.IntVar(value=int(self.auto_map_colour_palette))
-        #self.auto_map_colour_palette_checkbox = tk.Checkbutton(self.edit_map_options_window, text='Use the default colour palette for the selected parameter', variable=self.auto_map_colour_palette_int, padx=0, command=self.setAutoMapColourPalette)
-        #self.auto_map_colour_palette_checkbox.grid(row=2, column=1, columnspan=2, sticky=tk.NW+tk.SW, padx=0, pady=0)
         self.edit_map_options_frame = tk.Frame(self.edit_map_options_window, padx=0, pady=0)
         self.edit_map_options_colourbar = {}
         self.edit_map_options_radiobutton = {}
@@ -1267,7 +1225,7 @@ class ApplicationGUI(tk.Frame) :
                 self.edit_map_options_canvas.append(FigureCanvasTkAgg(self.edit_map_options_figures[i], master=self.edit_map_options_frame))
                 self.edit_map_options_canvas[i].show()
                 self.edit_map_options_canvas[i].get_tk_widget().configure(borderwidth=0, highlightthickness=0)
-                self.edit_map_options_canvas[i].get_tk_widget().grid(row=i, column=1, padx=0, pady=5, sticky=tk.NW+tk.SW) #.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+                self.edit_map_options_canvas[i].get_tk_widget().grid(row=i, column=1, padx=0, pady=5, sticky=tk.NW+tk.SW)
 
                 # Create new radio buttons
                 if colour_palette in available_colour_palettes :
@@ -1303,7 +1261,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Menu Method: Update Map Extended Colour Maps
     def updateExtendedColourMaps(self, colour_palette) :
-        #print 'TODO: updateExtendedColourMaps'
         colour_scheme_boundaries = self.calculateColourSchemeBoundaries()
         zero_index, colour_scheme_boundaries = self.adjustColourSchemeZeroBoundaries(colour_scheme_boundaries)
         self.colourmaps[False][colour_palette] = LinearSegmentedColormap.from_list(colour_palette, self.colour_palette_lists[False][colour_palette][(11-zero_index):(22-zero_index)], N=11)
@@ -1341,7 +1298,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Menu Method: Select Map Colour Palette
     def selectMapColourPalette(self) :
-        #print 'TODO: selectMapColourPalette'
         self.map_colour_palette = self.map_colour_palette_text.get()
         if hasattr(self, 'view_climate_data_window') and self.view_climate_data_window.children and self.current_view_climate_data_window_type == 'map' :
             if 'colours' not in self.map_options_update_includes :
@@ -1356,7 +1312,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Menu Method: Reverse Colour Palettes
     def reverseColourPalettes(self) :
-        #print 'TODO: reverseColourPalettes'
         self.reverse_map_colour_palette = bool(self.reverse_map_colour_palette_int.get())
         self.after_idle(lambda: self.updateMapColourSelection())
         if hasattr(self, 'view_climate_data_window') and self.view_climate_data_window.children and self.current_view_climate_data_window_type == 'map' :
@@ -1366,7 +1321,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Menu Method: Set Map Colour Boundary Lines
     def setMapColourBoundaryLines(self) :
-        #print 'TODO: setMapColourBoundaryLines'
         self.map_colour_boundary_lines = bool(self.map_colour_boundary_lines_int.get())
         self.after_idle(lambda: self.updateMapColourSelection())
         if hasattr(self, 'view_climate_data_window') and self.view_climate_data_window.children and self.current_view_climate_data_window_type == 'map' :
@@ -1376,7 +1330,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Menu Method: Set Map Colour Zero Boundary
     def setMapColourZeroBoundary(self) :
-        #print 'TODO: setMapColourZeroBoundary'
         self.map_colour_zero_boundary = bool(self.map_colour_zero_boundary_int.get())
         if self.map_colour_palette in self.extended_colour_palettes and not self.map_colour_zero_boundary :
             self.map_colour_palette = self.colour_palettes[0]
@@ -1396,7 +1349,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Menu Method: Set Use Contoured Grid Maps
     def setUseContouredGridMaps(self) :
-        #print 'TODO: setUseContouredGridMaps'
         self.use_contoured_grid_maps = bool(self.use_contoured_grid_maps_int.get())
         if hasattr(self, 'view_climate_data_window') and self.view_climate_data_window.children and self.current_view_climate_data_window_type == 'map' :
             if 'contoured' not in self.map_options_update_includes :
@@ -1405,14 +1357,12 @@ class ApplicationGUI(tk.Frame) :
 
     # Menu Method: Set Show Grid Map Land Boundaries
     def setShowGridMapLandBoundaries(self) :
-        #print 'TODO: setShowGridMapLandBoundaries'
         self.show_grid_map_land_boundaries = bool(self.show_grid_map_land_boundaries_int.get())
         if hasattr(self, 'view_climate_data_window') and self.view_climate_data_window.children and self.current_view_climate_data_window_type == 'map' :
             self.map_options_update_button.configure(state=tk.NORMAL)
 
     # Menu Method: Set Show Map Grid Lines
     def setShowMapGridLines(self) :
-        #print 'TODO: setShowMapGridLines'
         self.show_map_grid_lines = bool(self.show_map_grid_lines_int.get())
         if self.show_map_grid_lines :
             self.map_grid_include_menu.configure(state=tk.NORMAL)
@@ -1425,7 +1375,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Menu Method: Select Map Grid Include
     def selectMapGridInclude(self, selected) :
-        #print 'TODO: selectMapGridInclude'
         self.map_grid_include_text.set(self.map_grid_include_selection[self.map_grid_includes.index(selected)]) # needed as OptionMenu menu item commands have been overridden
         self.map_grid_include = selected
         if hasattr(self, 'view_climate_data_window') and self.view_climate_data_window.children and self.current_view_climate_data_window_type == 'map' :
@@ -1433,7 +1382,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Menu Method: Select Map Grid Space
     def selectMapGridSpace(self, selected) :
-        #print 'TODO: selectMapGridSpace', selected
         self.map_grid_space_text.set(self.map_grid_space_selection[self.map_grid_spaces.index(float(selected))]) # needed as OptionMenu menu item commands have been overridden
         self.map_grid_space = float(selected)
         if hasattr(self, 'view_climate_data_window') and self.view_climate_data_window.children and self.current_view_climate_data_window_type == 'map' :
@@ -1451,6 +1399,10 @@ class ApplicationGUI(tk.Frame) :
         if self.validation_warning_pending :
             self.validation_warning_pending = False
             return True
+
+        # Close climate data download window to avoid confusion
+        if hasattr(self, 'download_climate_data_window') :
+            self.download_climate_data_window.destroy()
 
         # Create or update config window
         if hasattr(self, 'config_climate_data_location_window') :
@@ -1476,7 +1428,7 @@ class ApplicationGUI(tk.Frame) :
         tool_option_values = self.getToolOptions()
 
         # If current climate data local directory location doesn't exist then clear it
-        if not path.exists(tool_option_values['climate_data_directory']) or not self.data_file_helper.climateDataIsPresent() :
+        if not path.exists(tool_option_values['climate_data_directory']) :
             tool_option_values['climate_data_directory'] = ''
 
         # Create the General Location Options frame
@@ -1485,11 +1437,11 @@ class ApplicationGUI(tk.Frame) :
         # Default location for climate data files
         self.climate_data_source_options = { 'url' : 'Network URL', 'local' : 'Local Directory' }
         self.climate_data_source_text = tk.StringVar(value=self.climate_data_source_options[tool_option_values['climate_data_source']])
-        climate_data_source_menu_selection = [self.climate_data_source_options['url'], self.climate_data_source_options['local']]
+        climate_data_source_menu_selection = [self.climate_data_source_options['local'], self.climate_data_source_options['url']]
         self.climate_data_source_menu = tk.OptionMenu(location_options_frame, self.climate_data_source_text, *climate_data_source_menu_selection)
         self.climate_data_source_menu.config(highlightthickness=0, anchor=tk.W)
         select_climate_data_source = location_options_frame.register(self.selectClimateDataSource)
-        for i, selection in enumerate(['url', 'local']) :
+        for i, selection in enumerate(['local', 'url']) :
             self.climate_data_source_menu['menu'].entryconfigure(i, command=(select_climate_data_source, selection))
 
         # URL and proxy settings
@@ -1506,6 +1458,17 @@ class ApplicationGUI(tk.Frame) :
         self.climate_data_proxy_username_entry = tk.Entry(location_options_frame, textvariable=self.climate_data_proxy_username_text, width=30, justify=tk.LEFT)
         self.climate_data_proxy_password_entry = tk.Entry(location_options_frame, textvariable=self.climate_data_proxy_password_text, show='*', width=30, justify=tk.LEFT)
 
+        # Local climate data file type
+        self.climate_data_local_data_type_label = tk.Label(location_options_frame, text='Data File Type:', justify=tk.LEFT)
+        self.climate_data_local_data_type_options = { 'netcdf' : 'NetCDF (default)', 'raw' : 'Raw Data' }
+        self.climate_data_local_data_type_text = tk.StringVar(value=self.climate_data_local_data_type_options[tool_option_values['climate_data_local_data_type']])
+        climate_data_local_data_type_menu_selection = [self.climate_data_local_data_type_options['netcdf'], self.climate_data_local_data_type_options['raw']]
+        self.climate_data_local_data_type_menu = tk.OptionMenu(location_options_frame, self.climate_data_local_data_type_text, *climate_data_local_data_type_menu_selection)
+        self.climate_data_local_data_type_menu.config(highlightthickness=0, anchor=tk.W)
+        select_climate_data_local_data_type = location_options_frame.register(self.selectClimateDataLocalDataType)
+        for i, selection in enumerate(['netcdf', 'raw']) :
+            self.climate_data_local_data_type_menu['menu'].entryconfigure(i, command=(select_climate_data_local_data_type, selection))
+
         # Local directory selection
         self.climate_data_directory_text = tk.StringVar(value=tool_option_values['climate_data_directory'])
         self.climate_data_directory_label = tk.Label(location_options_frame, textvariable=self.climate_data_directory_text, justify=tk.LEFT)
@@ -1518,7 +1481,9 @@ class ApplicationGUI(tk.Frame) :
         self.climate_data_source_menu.grid(row=0, column=0, padx=5, pady=5, sticky=tk.NW+tk.SE)
         self.climate_data_url_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky=tk.NW+tk.SE)
         self.climate_data_location_button.grid(row=0, rowspan=4, column=3, padx=5, pady=5, sticky=tk.W+tk.E)
-        self.climate_data_directory_label.grid(row=0, column=4, padx=5, pady=5, sticky=tk.NW+tk.SE)
+        self.climate_data_directory_label.grid(row=0, column=4, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        self.climate_data_local_data_type_label.grid(row=5, column=3, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        self.climate_data_local_data_type_menu.grid(row=5, column=4, padx=5, pady=5, sticky=tk.NW+tk.SW)
         self.climate_data_proxy_active_checkbox.grid(row=1, column=0, padx=5, pady=5, sticky=tk.NW+tk.SE)
         self.climate_data_proxy_url_entry.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky=tk.NW+tk.SE)
         self.climate_data_proxy_username_label = tk.Label(location_options_frame, text='Username:', justify=tk.LEFT)
@@ -1540,6 +1505,8 @@ class ApplicationGUI(tk.Frame) :
                 self.climate_data_proxy_password_label.grid_remove()
                 self.climate_data_proxy_password_entry.grid_remove()
             self.climate_data_directory_label.grid_remove()
+            self.climate_data_local_data_type_label.grid_remove()
+            self.climate_data_local_data_type_menu.grid_remove()
         else : # local
             self.climate_data_location_button_text.set('Select Directory')
             self.climate_data_url_entry.grid_remove()
@@ -1554,7 +1521,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Menu Configure Method: Select Climate Data Source
     def selectClimateDataSource(self, code) :
-        #print 'TODO: selectClimateDataSource'
         self.climate_data_source_text.set(self.climate_data_source_options[code]) # needed as OptionMenu menu item commands have been overridden
         
         # Get current config tool options
@@ -1582,10 +1548,14 @@ class ApplicationGUI(tk.Frame) :
                 self.climate_data_proxy_password_label.grid()
                 self.climate_data_proxy_password_entry.grid()
             self.climate_data_directory_label.grid_remove()
+            self.climate_data_local_data_type_label.grid_remove()
+            self.climate_data_local_data_type_menu.grid_remove()
             self.climate_data_url_text.set(tool_option_values['climate_data_url'])
         else : # local
             self.climate_data_location_button_text.set('Select Directory')
             self.climate_data_directory_label.grid()
+            self.climate_data_local_data_type_label.grid()
+            self.climate_data_local_data_type_menu.grid()
             self.climate_data_url_entry.grid_remove()
             self.climate_data_proxy_active_checkbox.grid_remove()
             self.climate_data_proxy_url_entry.grid_remove()
@@ -1594,15 +1564,29 @@ class ApplicationGUI(tk.Frame) :
             self.climate_data_proxy_password_label.grid_remove()
             self.climate_data_proxy_password_entry.grid_remove()
             self.climate_data_directory_text.set(tool_option_values['climate_data_directory'])
+            self.climate_data_local_data_type_text.set(self.climate_data_local_data_type_options[tool_option_values['climate_data_local_data_type']])
 
-    # Menu Configure Method: Set Climate Data Location
+    # Menu Configure Method: Select Climate Data Local Data Type
+    def selectClimateDataLocalDataType(self, code) :
+        self.climate_data_local_data_type_text.set(self.climate_data_local_data_type_options[code]) # needed as OptionMenu menu item commands have been overridden
+        
+        # Get current config tool options
+        tool_option_values = self.getToolOptions()
+
+        # Change data type and inform file helper
+        self.setToolOptions({ 'climate_data_local_data_type' : code })
+        self.data_file_helper.useNetCdfData(use=(code == 'netcdf'))
+
+        # Warn user if current climate data directory doesn't contain climate data
+        if not self.data_file_helper.climateDataIsPresent() :
+            showwarning('Climate data type not present in current directory', 'Climate data of this type is not present in ' + self.data_file_helper.getClimateDataDirectoryPath())
+
+    # Menu Configure Method: Validate Climate Data Url Entry
     def validateClimateDataUrlEntry(self, string_value, reason) : # eg. '%P', '%V'
-        #print 'TODO: validateClimateDataUrlEntry', string_value, reason
-        return True
+        return True # No validation implemented
 
     # Menu Configure Method: Set Climate Data Proxy Active
     def setClimateDataProxyActive(self) :
-        #print 'TODO: setClimateDataProxyActive'
 
         # Get current config tool options
         tool_option_values = self.getToolOptions()
@@ -1629,14 +1613,13 @@ class ApplicationGUI(tk.Frame) :
             self.climate_data_proxy_password_entry.grid_remove()
 
     # Menu Configure Method: Set Climate Data Location
-    def setClimateDataLocation(self) :
-        #print 'TODO: setClimateDataLocation'
+    def setClimateDataLocation(self, download=False) :
 
         # Get current config tool options
         tool_option_values = self.getToolOptions()
 
         # Action depends on data source
-        if tool_option_values['climate_data_source'] == 'url' :
+        if tool_option_values['climate_data_source'] == 'url' or download :
             self.data_file_helper.setClimateDataUrl(self.climate_data_url_text.get())
             if self.climate_data_proxy_active_int.get() :
                 self.setToolOptions({ 'climate_data_url' : self.climate_data_url_text.get(), 'climate_data_proxy_active' : True,
@@ -1644,17 +1627,21 @@ class ApplicationGUI(tk.Frame) :
                                       'climate_data_proxy_username' : self.climate_data_proxy_username_text.get(),
                                       'climate_data_proxy_password' : self.climate_data_proxy_password_text.get() })
                 self.data_file_helper.setClimateDataProxy(True, url=self.climate_data_proxy_url_text.get(), username=self.climate_data_proxy_username_text.get(), password=self.climate_data_proxy_password_text.get())
-                showinfo('Climate Data URL and Proxy Saved', 'Climate Data URL and Proxy Settings Saved to Configuration File')
+                if not download :
+                    showinfo('Climate Data URL and Proxy Saved', 'Climate Data URL and Proxy Settings Saved to Configuration File')
             else :
                 self.setToolOptions({ 'climate_data_url' : self.climate_data_url_text.get(), 'climate_data_proxy_active' : False })
                 self.data_file_helper.setClimateDataProxy(False)
-                showinfo('Climate Data URL Saved', 'Climate Data URL Saved to Configuration File')
+                if not download :
+                    showinfo('Climate Data URL Saved', 'Climate Data URL Saved to Configuration File')
+            if download and tool_option_values['climate_data_source'] == 'url' :
+                self.setToolOptions({ 'climate_data_source' : 'local' })
+                self.data_file_helper.setClimateDataSource('local')
         else : # local
             self.selectClimateDataDirectory()
 
     # Menu Configure Method: Select Climate Data Directory
     def selectClimateDataDirectory(self) :
-        #print 'TODO: selectClimateDataDirectory'
 
         # Use existing Climate Data Directory if it exists
         current_dir = self.climate_data_directory_text.get()
@@ -1681,18 +1668,25 @@ class ApplicationGUI(tk.Frame) :
                     showerror('Directory Error', 'Error loading or creating directory \"'+directory_name+'\". Check file permissions.')
                     print >> sys.stderr, 'Error loading or creating directory:', e
 
-            # Does it contain the climate data?
+            # Set the climate data directory appropriately
             climate_data_directory_path = path.normpath(str(climate_data_directory_path))
             previous_path = self.data_file_helper.getClimateDataDirectoryPath()
             self.data_file_helper.setClimateDataDirectory(climate_data_directory_path)
-            if self.data_file_helper.climateDataIsPresent() :
+            if hasattr(self, 'config_climate_data_location_window') and self.config_climate_data_location_window.children :
+                # Does it contain the climate data?
+                if self.data_file_helper.climateDataIsPresent() :
+                    self.climate_data_directory_text.set(climate_data_directory_path)
+                    self.setToolOptions({ 'climate_data_directory' : climate_data_directory_path })
+                    # Reset focus to config window
+                    self.config_climate_data_location_window.focus_set()
+                else :
+                    showwarning('Climate data not found', 'None of the expected climate data was not found in ' + climate_data_directory_path)
+                    self.data_file_helper.setClimateDataDirectory(previous_path)
+            elif hasattr(self, 'download_climate_data_window') and self.download_climate_data_window.children :
                 self.climate_data_directory_text.set(climate_data_directory_path)
                 self.setToolOptions({ 'climate_data_directory' : climate_data_directory_path })
-                # Reset focus to config window
-                self.config_climate_data_location_window.focus_set()
-            else :
-                showwarning('Climate data not found', 'The expected climate data was not found in ' + climate_data_directory_path)
-                self.data_file_helper.setClimateDataDirectory(previous_path)
+                # Reset focus to download window
+                self.download_climate_data_window.focus_set()
 
     # Menu Method: Configure Default File Generation Directory
     def configureDefaultFileGenerationDirectory(self) :
@@ -1706,6 +1700,10 @@ class ApplicationGUI(tk.Frame) :
         if self.validation_warning_pending :
             self.validation_warning_pending = False
             return True
+
+        # Close climate data download window to avoid confusion
+        if hasattr(self, 'download_climate_data_window') :
+            self.download_climate_data_window.destroy()
 
         # Create or update config window
         if hasattr(self, 'config_default_file_generation_directory_window') :
@@ -1754,7 +1752,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Menu Configure Method: Select Default File Generation Directory
     def selectDefaultFileGenerationDirectory(self) :
-        #print 'TODO: selectDefaultFileGenerationDirectory'
 
         # Get current config tool options
         tool_option_values = self.getToolOptions()
@@ -1797,11 +1794,219 @@ class ApplicationGUI(tk.Frame) :
             # Reset focus to config window
             self.config_default_file_generation_directory_window.focus_set()
 
+    # Menu Method: Download Climate Data
+    def downloadClimateData(self) :
+
+        self.focus_set()
+        
+        # Reset generation
+        self.resetGeneration()
+
+        # Exit if validation warning is pending
+        if self.validation_warning_pending :
+            self.validation_warning_pending = False
+            return True
+
+        # Close other config windows to avoid confusion
+        if hasattr(self, 'config_climate_data_location_window') :
+            self.config_climate_data_location_window.destroy()
+        if hasattr(self, 'config_default_file_generation_directory_window') :
+            self.config_default_file_generation_directory_window.destroy()
+
+        # Create or update download window
+        if hasattr(self, 'download_climate_data_window') :
+            if self.download_climate_data_window.children :
+                self.download_climate_data_window.focus_set()
+            else :
+                self.download_climate_data_window.destroy()
+                self.createDownloadClimateDataWindow()
+        else :
+            self.createDownloadClimateDataWindow()        
+        
+    # Menu Method: Create Download Climate Data Window
+    def createDownloadClimateDataWindow(self) :
+
+        # Create the Download Climate Data Window
+        self.download_climate_data_window = tk.Toplevel(self)
+        self.download_climate_data_window.title('Download Climate Data')
+        self.download_climate_data_window.transient(self)
+        self.download_climate_data_window.minsize(width=370, height=20)
+        self.download_climate_data_window.focus_set()
+
+        # Get current config tool options
+        tool_option_values = self.getToolOptions()
+
+        # If current climate data local directory location doesn't exist then clear it
+        if not path.exists(tool_option_values['climate_data_directory']) :
+            tool_option_values['climate_data_directory'] = '' # unpack_downloaded_netcdf_data
+
+        # Create the General Location Options frame
+        download_climate_data_frame = tk.Frame(self.download_climate_data_window, padx=5, pady=5)
+
+        # URL and proxy settings
+        self.climate_data_url_text = tk.StringVar(value=tool_option_values['climate_data_url'])
+        self.climate_data_proxy_active_int = tk.IntVar(value=int(tool_option_values['climate_data_proxy_active']))
+        self.climate_data_proxy_active_checkbox = tk.Checkbutton(download_climate_data_frame, text='Connect via proxy', variable=self.climate_data_proxy_active_int, padx=0, command=self.setClimateDataProxyActive)
+        self.climate_data_proxy_url_text = tk.StringVar(value=tool_option_values['climate_data_proxy_url'])
+        self.climate_data_proxy_username_text = tk.StringVar(value=tool_option_values['climate_data_proxy_username'])
+        self.climate_data_proxy_password_text = tk.StringVar(value=tool_option_values['climate_data_proxy_password'])
+        self.climate_data_url_entry = tk.Entry(download_climate_data_frame, textvariable=self.climate_data_url_text, width=70, justify=tk.LEFT)
+        validate_climate_data_url_entry = self.climate_data_url_entry.register(self.validateClimateDataUrlEntry)
+        self.climate_data_url_entry.config(validate='all', validatecommand=(validate_climate_data_url_entry, '%P', '%V'))
+        self.climate_data_proxy_url_entry = tk.Entry(download_climate_data_frame, textvariable=self.climate_data_proxy_url_text, width=50, justify=tk.LEFT)
+        self.climate_data_proxy_username_entry = tk.Entry(download_climate_data_frame, textvariable=self.climate_data_proxy_username_text, width=30, justify=tk.LEFT)
+        self.climate_data_proxy_password_entry = tk.Entry(download_climate_data_frame, textvariable=self.climate_data_proxy_password_text, show='*', width=30, justify=tk.LEFT)
+
+        # Local directory selection
+        self.climate_data_directory_button = tk.Button(download_climate_data_frame, text='Download to Directory', command=self.selectClimateDataDirectory)
+        self.climate_data_directory_text = tk.StringVar(value=tool_option_values['climate_data_directory'])
+        self.climate_data_directory_label = tk.Label(download_climate_data_frame, textvariable=self.climate_data_directory_text, justify=tk.LEFT)
+
+        # Download data selection:
+        download_climate_data_selection_frame = tk.Frame(download_climate_data_frame, padx=0, pady=0)
+
+        # Parameter data selection
+        download_climate_data_parameters_frame = tk.LabelFrame(download_climate_data_selection_frame, padx=5, pady=5)
+        parameter_group_code = self.parameter_group_selection_map[self.parameter_group_text.get()]
+        parameter_code = self.parameter_via_group_selection_map[parameter_group_code][self.parameter_via_group_text[parameter_group_code].get()]
+        current_data_parameters_required = self.data_file_helper.getDataParametersRequired(parameter_group_code, parameter_code)
+        self.climate_data_parameter_int = {}
+        self.climate_data_parameter_checkbox = {}
+        for data_parameter in self.data_file_helper.getDataParameters() :
+            self.climate_data_parameter_int[data_parameter] = tk.IntVar(value=int(data_parameter in current_data_parameters_required))
+            self.climate_data_parameter_checkbox[data_parameter] = tk.Checkbutton(download_climate_data_parameters_frame, text=data_parameter.replace('_',' ').title(), variable=self.climate_data_parameter_int[data_parameter], padx=0)
+            
+        # Get period and interval values and convert to AD if required
+        period_ad_from = int(self.period_text['from'].get())
+        period_ad_until = int(self.period_text['until'].get())
+        if self.period_postfix_text['from'].get() == self.period_postfix_keys[0] : # BP
+            period_ad_from = 1950 - period_ad_from
+        if self.period_postfix_text['until'].get() == self.period_postfix_keys[0] : # BP
+            period_ad_until = 1950 - period_ad_until
+
+        # Get delta reference data when required
+        if self.utilise_delta.get() :
+            delta_reference_period_code = self.delta_reference_period_codes[self.delta_reference_interval_selection.index(self.delta_reference_interval_text.get())]
+            delta_ref_period_ad = self.delta_reference_value[delta_reference_period_code]['year']
+            if self.delta_reference_value[delta_reference_period_code]['postfix'] == self.period_postfix_keys[0] : # BP
+                delta_ref_period_ad = 1950 - delta_ref_period_ad
+
+        # Data download interval selection
+        download_climate_download_intervals_frame = tk.LabelFrame(download_climate_data_selection_frame, padx=10, pady=5)
+        current_download_intervals_required = self.data_file_helper.climateDataDownloadIntervalsRequired(years={ 'from_year_ad' : period_ad_from, 'until_year_ad' : period_ad_until })
+        if self.utilise_delta.get() :
+            current_download_intervals_required.extend(self.data_file_helper.climateDataDownloadIntervalsRequired(years={ 'from_year_ad' : delta_ref_period_ad, 'until_year_ad' : delta_ref_period_ad }))
+        self.climate_download_interval_int = {}
+        self.climate_download_interval_checkbox = {}
+        for download_interval in self.data_file_helper.getClimateDataDownloadIntervals() :
+            download_interval_required = False
+            if download_interval in current_download_intervals_required :
+                for required_parameter in current_data_parameters_required :
+                    download_interval_required = download_interval_required or not(self.data_file_helper.climateDataDownloadIntervalPresent(required_parameter, download_interval))
+            self.climate_download_interval_int[download_interval] = tk.IntVar(value=int(download_interval_required))
+            self.climate_download_interval_checkbox[download_interval] = tk.Checkbutton(download_climate_download_intervals_frame, text=download_interval, variable=self.climate_download_interval_int[download_interval], padx=0)
+
+        # Download
+        self.climate_data_download_button = tk.Button(download_climate_data_frame, text='Download Climate Data', command=self.downloadSelectedClimateData)
+
+        # Download status test and bar
+        self.climate_data_download_status_text = tk.StringVar(value='')
+        self.climate_data_download_status_label = tk.Label(download_climate_data_frame, textvariable=self.climate_data_download_status_text, justify=tk.LEFT)
+        self.climate_data_download_status_bar = ttk.Progressbar(download_climate_data_frame, orient='horizontal', mode='determinate')
+
+        # Place elements on grid
+        self.climate_data_url_label = tk.Label(download_climate_data_frame, text='Download from URL:', justify=tk.LEFT)
+        self.climate_data_url_label.grid(row=0, column=0, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        self.climate_data_url_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        self.climate_data_proxy_active_checkbox.grid(row=1, column=0, padx=15, pady=5, sticky=tk.NW+tk.SW)
+        self.climate_data_proxy_url_entry.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        self.climate_data_proxy_username_label = tk.Label(download_climate_data_frame, text='Username:', justify=tk.LEFT)
+        self.climate_data_proxy_username_label.grid(row=2, column=1, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        self.climate_data_proxy_username_entry.grid(row=2, column=2, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        self.climate_data_proxy_password_label = tk.Label(download_climate_data_frame, text='Password:', justify=tk.LEFT)
+        self.climate_data_proxy_password_label.grid(row=3, column=1, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        self.climate_data_proxy_password_entry.grid(row=3, column=2, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        self.climate_data_directory_button.grid(row=4, column=0, padx=5, pady=5, sticky=tk.NW+tk.SE)
+        self.climate_data_directory_label.grid(row=4, column=1, columnspan=2, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        tk.Label(download_climate_data_frame, text='Select Climate Data to Download:', justify=tk.LEFT).grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        tk.Label(download_climate_data_parameters_frame, text='Select Data Parameters:', justify=tk.LEFT).grid(row=0, column=0, columnspan=1, padx=0, pady=0, sticky=tk.NW+tk.SW)
+        row = 1
+        for data_parameter in self.data_file_helper.getDataParameters() :
+            self.climate_data_parameter_checkbox[data_parameter].grid(row=row, column=0, columnspan=1, padx=15, pady=5, sticky=tk.NW+tk.SW)
+            row += 1
+        download_climate_data_parameters_frame.grid(row=0, column=0, columnspan=1, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        tk.Label(download_climate_download_intervals_frame, text='Select Download Intervals:', justify=tk.LEFT).grid(row=0, column=0, columnspan=1, padx=0, pady=0, sticky=tk.NW+tk.SW)
+        row = 1
+        for download_interval in self.data_file_helper.getClimateDataDownloadIntervals() :
+            self.climate_download_interval_checkbox[download_interval].grid(row=row, column=0, columnspan=1, padx=15, pady=5, sticky=tk.NW+tk.SW)
+            row += 1
+        download_climate_download_intervals_frame.grid(row=0, column=1, columnspan=1, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        download_climate_data_selection_frame.grid(row=6, column=0, columnspan=3, padx=15, pady=0, sticky=tk.NW+tk.SW)
+        self.climate_data_download_button.grid(row=7, column=0, padx=5, pady=5, sticky=tk.NW+tk.SE)
+        self.climate_data_download_status_label.grid(row=7, column=1, padx=5, pady=5, sticky=tk.NW+tk.SW)
+        self.climate_data_download_status_bar.grid(row=8, column=0, columnspan=3, sticky=tk.NW+tk.SE, padx=0, pady=5)
+        self.climate_data_download_status_bar.grid_remove()
+        download_climate_data_frame.columnconfigure(1, weight=1)
+        download_climate_data_frame.columnconfigure(2, weight=1000)
+
+        # Hide proxy elements when not selected
+        if not tool_option_values['climate_data_proxy_active'] :
+            self.climate_data_proxy_url_entry.grid_remove()
+            self.climate_data_proxy_username_label.grid_remove()
+            self.climate_data_proxy_username_entry.grid_remove()
+            self.climate_data_proxy_password_label.grid_remove()
+            self.climate_data_proxy_password_entry.grid_remove()
+
+        download_climate_data_frame.grid(row=0, column=0, sticky=tk.NW+tk.SE, padx=0, pady=0)
+
+    # Menu Method: Download Selected Climate Data
+    def downloadSelectedClimateData(self) :
+
+        # Override URL and proxy
+        self.setClimateDataLocation(download=True)
+
+        # Get download data parameters and intervals required
+        data_parameters_selected = []
+        for data_parameter in self.data_file_helper.getDataParameters() :
+            if self.climate_data_parameter_int.has_key(data_parameter) and self.climate_data_parameter_int[data_parameter].get() :
+                data_parameters_selected.append(data_parameter)
+        download_intervals_selected = []
+        for download_interval in self.data_file_helper.getClimateDataDownloadIntervals() :
+            if self.climate_download_interval_int.has_key(download_interval) and self.climate_download_interval_int[download_interval].get() :
+                download_intervals_selected.append(download_interval)
+
+        # Download and unpack NetCDF files
+        if self.data_file_helper.getClimateDataUrl() and self.data_file_helper.getClimateDataDirectoryPath() and data_parameters_selected and download_intervals_selected :
+            for data_parameter in data_parameters_selected :
+                for download_interval in download_intervals_selected :
+                    if not self.data_file_helper.climateDataDownloadIntervalPresent(data_parameter, download_interval) :
+                        self.climate_data_download_button.configure(state=tk.DISABLED)
+                        self.climate_data_download_status_text.set('Downloading ' + data_parameter.replace('_',' ').title() + ' ' + download_interval + ' ...')
+                        self.climate_data_download_status_bar['maximum'] = 1
+                        self.climate_data_download_status_bar['value'] = 0
+                        self.climate_data_download_status_bar.grid()
+                        self.update_idletasks()
+                        try :
+                            self.data_file_helper.downloadClimateDataInterval(data_parameter, download_interval, delimiter='')
+                        except Exception, e :
+                            showerror('Data download error', str(e))
+                            print >> sys.stderr, 'Data download error:', e
+                        self.climate_data_download_status_text.set('')
+                        self.climate_data_download_status_bar.grid_remove()
+                        self.climate_data_download_button.configure(state=tk.NORMAL)
+                        self.update_idletasks()
+        else :
+            if not self.data_file_helper.getClimateDataUrl() :
+                showinfo('Download from URL not defined', 'Please enter the URL location of the climate data download(s).')
+            elif not self.data_file_helper.getClimateDataDirectoryPath() :
+                showinfo('Download to Directory not defined', 'Please select the directory destination for the climate data download(s).')
+            elif not (data_parameters_selected or download_intervals_selected) :
+                showinfo('Download Selection not defined', 'Please select the climate data to download.')
+
     ## Step 1: Data Type Methods ################################################################################################################################################
 
     # Step 1 Method: Select data type: the user selects an option
     def selectDataType(self, selected) :
-        #print 'TODO: selectDataType', selected
 
         self.data_type_text.set(self.data_type_selection[self.data_type_keys.index(selected)]) # needed as OptionMenu menu item commands have been overridden
 
@@ -1834,46 +2039,29 @@ class ApplicationGUI(tk.Frame) :
         if selected_data_file_type not in self.data_file_types_for_data_type[selected] :
             self.selectDataFileType(self.data_file_types_for_data_type[selected][0])
 
-        # Update data action
-        #self.data_action_menu['map'].grid_remove()
-        #self.data_action_menu['series'].grid_remove()
-        #self.data_action_menu[selected].grid()
-
         # Update Period (and Current Interval Steps)
         self.matchPeriodUntilWithFrom()
-
-        # Update workflow status
-        self.updateStepsCompleted()
 
         # Reset generation
         self.resetGeneration()
 
     # Step 1 Method: Select data action: the user selects an option
-    def selectDataAction(self, selected) : #selectDataAction(self, data_type, selected) :
-        #print 'TODO: selectDataAction', selected
+    def selectDataAction(self, selected) :
 
         self.data_action_text.set(self.data_action_selection[self.data_action_keys.index(selected)]) # needed as OptionMenu menu item commands have been overridden
-        #self.data_action_text[data_type].set(self.data_action_selection[data_type][self.data_action_keys.index(selected)]) # needed as OptionMenu menu item commands have been overridden
 
         # Set maximum interval steps
         if selected == 'view' :
             self.file_frame.grid_remove()
             self.view_frame.grid()
             self.utilise_delta_text.set(self.utilise_delta_pre_text['view'] + self.utilise_delta_post_text)
-##            self.configure_menu.entryconfigure(self.configure_menu_indices['default_file_generation_directory'], state=tk.DISABLED)
-##            if hasattr(self, 'config_default_file_generation_directory_window') :
-##                self.config_default_file_generation_directory_window.destroy()
         elif selected == 'files' :
             self.view_frame.grid_remove()
             self.file_frame.grid()
             self.utilise_delta_text.set(self.utilise_delta_pre_text['files'] + self.utilise_delta_post_text)
-##            self.configure_menu.entryconfigure(self.configure_menu_indices['default_file_generation_directory'], state=tk.NORMAL)
 
         # Update Period (and Current Interval Steps)
         self.matchPeriodUntilWithFrom()
-
-        # Update workflow status
-        self.updateStepsCompleted()
 
         # Reset generation
         self.resetGeneration()
@@ -1897,9 +2085,6 @@ class ApplicationGUI(tk.Frame) :
         # Include delta as percent?
         self.deltaAsPercentInclusion()
 
-        # Update workflow status
-        self.updateStepsCompleted()
-
         # Reset generation
         self.resetGeneration()
 
@@ -1913,9 +2098,6 @@ class ApplicationGUI(tk.Frame) :
 
         # Include delta as percent?
         self.deltaAsPercentInclusion()
-
-        # Update workflow status
-        self.updateStepsCompleted()
 
         # Reset generation
         self.resetGeneration()
@@ -1992,7 +2174,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 2 Method: Select Time Unit: the user selects an option
     def selectTimeUnit(self, selected, context=None) :
-        #print 'TODO: selectTimeUnit', selected, context 
 
         if context == 'months' :
             self.time_unit_months_text.set(selected) # needed as OptionMenu menu item commands have been overridden
@@ -2032,27 +2213,6 @@ class ApplicationGUI(tk.Frame) :
                 self.time_unit_is_all_months = True
             elif self.time_unit_is_all_months :
                 self.time_unit_is_all_months = False
-
-        # Modify period dates when months cross years if required
-##        if self.period_postfix_text['from'].get() == self.period_postfix_keys[1] : # AD
-##            maximum_from_value = self.period_ranges['AD']['max'] - self.interval_step_range['min'] - self.interval_size_range['min']/2
-##        if self.period_postfix_text['from'].get() == self.period_postfix_keys[0] : # BP
-##            maximum_from_value = self.period_ranges['BP']['max'] - self.interval_size_range['min']/2
-##            if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##                if self.current_valid_period_value['from'] > maximum_from_value - 1 :
-##                    self.period_text['from'].set(str(maximum_from_value - 1))
-##            else :
-##                if self.current_valid_period_value['from'] == (maximum_from_value - 1) :
-##                    self.period_text['from'].set(str(maximum_from_value))
-##            self.updateIntervalStep()
-##            self.updatePeriodSpinboxList('from')
-##            self.matchPeriodUntilWithFrom()
-##            self.matchIntervalSizeWithStep()
-##            self.updateDeltaReferenceIntervals()
-
-        #print self.selected_time_unit_month_indices
-        # Update workflow status
-        self.updateStepsCompleted()
 
         # Reset generation
         self.resetGeneration()
@@ -2139,31 +2299,8 @@ class ApplicationGUI(tk.Frame) :
         self.time_unit_other_text.set(self.userDefinedTimeUnitString(self.current_user_defined_time_unit_month_indices))
         self.selected_time_unit_month_indices = self.current_user_defined_time_unit_month_indices
         
-        # Modify period dates when months cross years if required
-##        if self.period_postfix_text['from'].get() == self.period_postfix_keys[1] : # AD
-##            if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##                maximum_from_value = self.period_ranges['AD']['max'] - self.current_valid_interval_step_value - self.interval_size_range['min']/2 - 1
-##                if self.current_valid_period_value['from'] > maximum_from_value :
-##                    self.period_text['from'].set(str(self.current_valid_period_value['from'] - self.current_valid_interval_step_value))
-##        if self.period_postfix_text['from'].get() == self.period_postfix_keys[0] : # BP
-##            maximum_from_value = self.period_ranges['BP']['max'] - self.interval_size_range['min']/2
-##            if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##                if self.current_valid_period_value['from'] > maximum_from_value - 1 :
-##                    self.period_text['from'].set(str(maximum_from_value - 1))
-##            else :
-##                if self.current_valid_period_value['from'] == (maximum_from_value - 1) :
-##                    self.period_text['from'].set(str(maximum_from_value))
-##            self.updateIntervalStep()
-##            self.updatePeriodSpinboxList('from')
-##            self.matchPeriodUntilWithFrom()
-##            self.matchIntervalSizeWithStep()
-##            self.updateDeltaReferenceIntervals()
-
         # Close options window
         self.user_defined_time_unit_window.destroy()
-
-        # Update workflow status
-        self.updateStepsCompleted()
 
     # Step 2 Method: User Defined Time Unit Cancel
     def userDefinedTimeUnitCancel(self) :
@@ -2173,7 +2310,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Select Region: the user opens options
     def selectRegion(self, selected) :
-        #print 'TODO: selectRegion', selected
         self.region_selection_text.set(self.region_code_map[selected]) # needed as OptionMenu menu item commands have been overridden
         self.current_region = selected
         if selected == 'user-defined' :
@@ -2185,15 +2321,11 @@ class ApplicationGUI(tk.Frame) :
             self.region_mask = self.data_file_helper.loadRegionMask(selected, time_dependent=self.region_is_time_dependent[selected])
             self.updateRegionWindow(button_pressed=False)
 
-        # Update workflow status
-        self.updateStepsCompleted()
-
         # Reset generation
         self.resetGeneration()
 
     # Step 3 Method: View Edit Region
     def viewEditRegion(self, button_pressed=True) :
-        #print 'TODO: viewEditRegion', button_pressed
 
         if button_pressed :
             # Shift focus so as to trigger any pending validation warnings
@@ -2215,15 +2347,11 @@ class ApplicationGUI(tk.Frame) :
         else :
             self.createRegionWindow()        
         
-        # Update workflow status
-        self.updateStepsCompleted()
-
         # Reset generation
         self.resetGeneration()
 
     # Step 3 Method: Create Region Window
     def createRegionWindow(self) :
-        #print 'TODO: createRegionWindow'
 
         # Create the region window
         self.view_edit_region_window = tk.Toplevel(self)
@@ -2356,7 +2484,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Validate User-defined Region Entry
     def validateUserDefinedRegionEntry(self, string_value, reason, axis, position, component) : # eg. '%P', '%V', 'latitude', 'from', 'degrees'
-        #print 'TODO: validateUserDefinedRegionEntry', string_value, reason, axis, position, component
 
         # Record previous value
         if reason == 'forced' and self.previous_user_defined_region_changed_via[axis][position][component] == 'key' or reason == 'key' or reason == 'focusout' :
@@ -2410,7 +2537,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Update User-defined Region Degrees
     def updateUserDefinedRegionDegrees(self, axis, position, direction=None) : # eg. 'latitude', 'from', 'N'
-        #print 'TODO: updateUserDefinedRegionDegrees', axis, position, direction
 
         # Update direction (upper case) and limit degrees when present
         if direction :
@@ -2446,8 +2572,6 @@ class ApplicationGUI(tk.Frame) :
         simulated_button_press = bool(button)
         if not simulated_button_press :
             button = self.user_defined_region_entry[axis][position]['degrees'].identify(self.winfo_pointerx()-self.user_defined_region_entry[axis][position]['degrees'].winfo_rootx(), self.winfo_pointery()-self.user_defined_region_entry[axis][position]['degrees'].winfo_rooty())
-        #print 'TODO: userDefinedRegionSpinboxArrowPress', axis, position, button
-
         if button == 'entry' or button == '' : # happens if user moves mouse quickly after button press
             current_value_list = np.genfromtxt(StringIO(self.user_defined_region_entry[axis][position]['degrees']['values'])).tolist()
             if self.isNonNegativetiveFloat(self.previous_user_defined_region[axis][position]['degrees']) :
@@ -2551,7 +2675,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Update User-defined Region Degrees
     def updateOppositeUserDefinedRegionEntries(self, axis, position, direction=None) : # eg. 'latitude', 'from', 'N'
-        #print 'TODO: updateOppositeUserDefinedRegionEntries', axis, position, direction
 
         # Get direction when not defined
         if not direction :
@@ -2693,7 +2816,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Update Region Window
     def updateRegionWindow(self, button_pressed) :
-        #print 'TODO: updateRegionWindow', button_pressed
 
         # Handle updates when button not pressed
         update = False
@@ -2753,7 +2875,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Update Region Mask
     def updateRegionMask(self, top_left, bottom_right) :
-        #print 'updateRegionMask: top_left', top_left, 'bottom_right', bottom_right
         self.region_mask = self.region_mask*0
         if bottom_right[1] >= top_left[1] :
             self.region_mask[top_left[0]:bottom_right[0]+1, top_left[1]:bottom_right[1]+1] = 1
@@ -2763,7 +2884,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Update User-defined Region Display
     def updateUserDefinedRegionDisplay(self, empty=False) :
-        #print 'TODO: updateUserDefinedRegionDisplay'
 
         # Check that user-defined entries are complete and valid
         entries_complete_and_valid = False
@@ -2803,7 +2923,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Region Button Press Event
     def regionButtonPressEvent(self, event) :
-        #print 'TODO: regionButtonPressEvent', event.xdata, event.ydata
         self.region_select_button_held = True
         if self.current_region == 'user-defined' and event.xdata and event.ydata :
             row = (np.arange(90, -90, -2.5) < event.ydata).tolist().count(False) - 1
@@ -2815,7 +2934,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Region Button Release Event
     def regionButtonReleaseEvent(self, event) :
-        #print 'TODO: regionButtonReleaseEvent', event.xdata, event.ydata
         if self.current_region == 'user-defined' and self.region_select_button_held and event.xdata and event.ydata :
             row = (np.arange(90, -90, -2.5) < event.ydata).tolist().count(False) - 1
             col = (np.arange(-180, 180, 2.5) > event.xdata).tolist().count(False) - 1
@@ -2850,7 +2968,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Update User-defined Region Entries
     def updateUserDefinedRegionEntries(self, update='all', clear='none') :
-        #print 'TODO: updateUserDefinedRegionEntries'
         if (self.region_mask > 0).any() :
             if update in ['all', 'from'] or (update == 'to' and not self.user_defined_region_from_entry_set) :
                 lat_from = np.arange(90, -90, -2.5)[self.region_mask.sum(1).nonzero()[0].min()]
@@ -2933,11 +3050,11 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Update Time-dependent Region Previous Next
     def updateTimeDependentPreviousNext(self, mask_year) :
-        if mask_year < 21000 : #(mask_year + self.calculateTimeDependentRegionYearStep()) <= 21000 :
+        if mask_year < 21000 :
             self.time_dependent_region_previous_button.configure(state=tk.NORMAL)
         else :
             self.time_dependent_region_previous_button.configure(state=tk.DISABLED)
-        if mask_year > 0 : #(mask_year - self.calculateTimeDependentRegionYearStep()) >= 0 :
+        if mask_year > 0 :
             self.time_dependent_region_next_button.configure(state=tk.NORMAL)
         else :
             self.time_dependent_region_next_button.configure(state=tk.DISABLED)
@@ -2958,7 +3075,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Set Previous Time-dependent Region
     def setPreviousTimeDependentRegion(self) :
-        #print 'TODO: setPreviousTimeDependentRegion'
         previous_year = int(self.time_dependent_region_year_text.get()) + self.calculateTimeDependentRegionYearStep()
         if previous_year > 21000 :
             previous_year = 21000
@@ -2967,7 +3083,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 3 Method: Set Next Time-dependent Region
     def setNextTimeDependentRegion(self) :
-        #print 'TODO: setNextTimeDependentRegion'
         next_year = int(self.time_dependent_region_year_text.get()) - self.calculateTimeDependentRegionYearStep()
         if next_year < 0 :
             next_year = 0
@@ -2978,7 +3093,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 4 Method: Select Period Postfix: the user opens options
     def validatePeriod(self, string_value, reason, context) :
-        #print 'TODO: validatePeriod', string_value, reason, context 
 
         # Anticipate warning/error conditions not satisfied
         warning_pending = False
@@ -3015,10 +3129,6 @@ class ApplicationGUI(tk.Frame) :
         if self.isNonNegativeInteger(string_value) :
             minimum_value = self.period_ranges[postfix_key]['min']
             if postfix_key == 'BP' :
-##                if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##                    maximum_value = self.period_ranges[postfix_key]['max'] - self.interval_size_range['min']/2 - 1
-##                else :
-##                    maximum_value = self.period_ranges[postfix_key]['max'] - self.interval_size_range['min']/2
                 maximum_value = self.period_ranges['BP']['max-entry']
             else : # AD
                 maximum_value = self.period_ranges['AD']['max'] - self.interval_size_range['min']/2 + int(not bool(self.interval_size_range['min']%2))
@@ -3130,7 +3240,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 4 Method: Match Period Until With From
     def matchPeriodUntilWithFrom(self, until_before_from=False) :
-        #print 'TODO: matchPeriodUntilWithFrom', until_before_from, self.period_postfix_text['from'].get()
 
         # Resolve postfix key
         if self.period_postfix_text['until'].get() == self.period_postfix_keys[0] : # BP (=> from also BP)
@@ -3147,20 +3256,12 @@ class ApplicationGUI(tk.Frame) :
         until_value = int(self.period_text['until'].get())
         #self.updateIntervalStep()
         interval_step = self.current_valid_interval_step_value
-##        if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##            period_ranges_ad = { 'min' : self.period_ranges['AD']['min'], 'max' : (self.period_ranges['AD']['max'] - self.interval_size_range['min']/2 - 1) }
-##        else :
         period_ranges_ad = { 'min' : self.period_ranges['AD']['min'], 'max' : (self.period_ranges['AD']['max'] - self.interval_size_range['min']/2 + int(not bool(self.interval_size_range['min']%2))) }
         period_ranges = period_ranges_ad
         if self.period_postfix_text['from'].get() == self.period_postfix_keys[0] : # BP
             from_value = 1950 - from_value
-            #period_ranges = { 'min' : (1950 - self.period_ranges['BP']['max'] + self.interval_size_range['min']/2), 'max' : (1950 - self.period_ranges['BP']['min']) }
         if self.period_postfix_text['until'].get() == self.period_postfix_keys[0] : # BP
             until_value = 1950 - until_value
-##            if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##                period_ranges = { 'min' : (1950 - self.period_ranges['BP']['max'] + self.interval_size_range['min']/2 + 1), 'max' : (1950 - self.period_ranges['BP']['min']) }
-##            else :
-##                period_ranges = { 'min' : (1950 - self.period_ranges['BP']['max'] + self.interval_size_range['min']/2), 'max' : (1950 - self.period_ranges['BP']['min']) }
             period_ranges = { 'min' : (1950 - self.period_ranges['BP']['max-entry']), 'max' : (1950 - self.period_ranges['BP']['min']) }
 
         # Does a BP until range need to be extended or changed into AD?
@@ -3187,7 +3288,6 @@ class ApplicationGUI(tk.Frame) :
                 possible_values.append(next_step_value)
                 steps += 1
                 next_step_value = from_value + interval_step*steps
-        #print 'possible_values:', possible_values[:5], '...', possible_values[len(possible_values)-5:], until_value
 
         # Will a close value be found within the possible values?
         closest_value_present = False
@@ -3195,19 +3295,12 @@ class ApplicationGUI(tk.Frame) :
             closest_value_present = (until_value >= possible_values[0] and until_value <= possible_values[:].pop())
 
         if closest_value_present : # Look for the closest value greater than the until value
-            #lower_value = from_value
             upper_value = possible_values[0]
             gone_past = False
             for value in possible_values :
-##                if until_value >= value :
-##                    lower_value = value
-##                elif not gone_past :
                 if value >= until_value and not gone_past :
                     upper_value = value
                     gone_past = True
-##            if abs(lower_value - until_value) < abs(upper_value - until_value) :
-##                until_value = lower_value
-##            else :
             until_value = upper_value
             self.current_interval_steps = possible_values.index(until_value) + 1
         elif data_type == 'map' and data_action == 'view' and self.current_interval_steps <= self.maximum_interval_steps: # maintain current interval steps if possible
@@ -3219,7 +3312,7 @@ class ApplicationGUI(tk.Frame) :
                     possible_steps = steps
             if possible_steps < self.current_interval_steps :
                 self.current_interval_steps = possible_steps
-        else : # (self.previous_period_changed_via['until'] == 'key') and (until_value < possible_values[0] or until_value > possible_values[:].pop()) :
+        else :
             if until_value < possible_values[0] :
                 until_value = possible_values[0]
                 self.current_interval_steps = 1
@@ -3235,24 +3328,18 @@ class ApplicationGUI(tk.Frame) :
             if until_value < period_ranges_ad['min'] or until_value > period_ranges_ad['max'] or (self.period_postfix_text['from'].get() == self.period_postfix_keys[0] and until_value <= 1950) :
                 self.period_postfix_text['until'].set(self.period_postfix_keys[0]) # change to BP
         if self.period_postfix_text['until'].get() == self.period_postfix_keys[0] : # BP
-            #if until_value in possible_values :
-            #    possible_values = possible_values[possible_values.index(until_value):]
-            #print 'revised:', possible_values
             converted_possible_values = []
             for value in possible_values :
                 if value <= 1950 :
                     converted_possible_values.append(-1*value + 1950)
             possible_values = converted_possible_values
-            #print 'converted:', possible_values
             until_value = -1*until_value + 1950
-            #print 'converted until_value:', until_value
 
         # Update spinbox list
         self.updatePeriodSpinboxList('until', value=until_value, values=possible_values)
 
     # Step 4 Method: Update Period Spinbox List
     def updatePeriodSpinboxList(self, context, value=None, values=None) :
-        #print 'TODO: updatePeriodSpinboxList', context, self.period_text['from'].get(), self.current_valid_period_value[context]
         if value != None and values != None :
             self.current_period_values[context] = values
             self.period_entry[context].config(values=tuple(map(str, values)))
@@ -3261,28 +3348,17 @@ class ApplicationGUI(tk.Frame) :
             current_value = self.current_valid_period_value['from'] # = { 'from' : 1950, 'until' : 1989 }
             interval_step = self.current_valid_interval_step_value
             if self.period_postfix_text['from'].get() == self.period_postfix_keys[0] : # BP
-##                if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##                    maximum_from_value = self.period_ranges['BP']['max'] - self.interval_size_range['min']/2 - 1
-##                else :
-##                    maximum_from_value = self.period_ranges['BP']['max'] - self.interval_size_range['min']/2
                 maximum_from_value = self.period_ranges['BP']['max-entry']
-#                values = range((self.period_ranges['BP']['max'] - (self.period_ranges['BP']['max'] - current_value) % interval_step), self.period_ranges['BP']['min']-1, -1*interval_step)
                 values = range((maximum_from_value - (maximum_from_value - current_value) % interval_step), self.period_ranges['BP']['min']-1, -1*interval_step)
             elif self.period_postfix_text['from'].get() == self.period_postfix_keys[1] : # AD
-##                if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##                    maximum_from_value = self.period_ranges['AD']['max'] - self.interval_size_range['min']/2 - interval_step - 1
-##                else :
                 maximum_from_value = self.period_ranges['AD']['max'] - self.interval_size_range['min']/2 + int(not bool(self.interval_size_range['min']%2)) - interval_step
                 values = range((self.period_ranges['AD']['min'] + (current_value - self.period_ranges['AD']['min']) % interval_step), maximum_from_value+1, interval_step)
-            #print 'max:', maximum_from_value, 'from values:', values
             self.period_entry[context].config(values=tuple(map(str, values)))
             self.period_text[context].set(str(current_value))
             self.current_period_values[context] = values[:]
 
     # Step 4 Method: Select Period Postfix: the user opens options
     def periodSpinboxArrowPress(self, context) :
-        #print 'TODO: periodSpinboxArrowPress', context, self.period_text[context].get(), self.previous_period_text_value[context]
-        #print self.period_entry[context]['values']
 
         # Identify button pressed
         button = self.period_entry[context].identify(self.winfo_pointerx()-self.period_entry[context].winfo_rootx(), self.winfo_pointery()-self.period_entry[context].winfo_rooty())
@@ -3305,9 +3381,6 @@ class ApplicationGUI(tk.Frame) :
             if self.isNonNegativeInteger(self.period_text[context].get()) :
 
                 # Get current, maximum and incremented period values
-##                if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##                    maximum_ad_value = self.period_ranges['AD']['max'] - self.interval_size_range['min']/2 - 1
-##                else :
                 maximum_ad_value = self.period_ranges['AD']['max'] - self.interval_size_range['min']/2 + int(not bool(self.interval_size_range['min']%2))
                 if context == 'from' :
                     maximum_ad_value = maximum_ad_value - self.current_valid_interval_step_value
@@ -3323,9 +3396,6 @@ class ApplicationGUI(tk.Frame) :
                     new_interval_step_index = None
                     if current_interval_step_index > 0 :
                         for step_index in range(current_interval_step_index) :
-##                            if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##                                maximum_ad_value = self.period_ranges['AD']['max'] - self.interval_size_range['min']/2 - self.current_interval_step_values[step_index] - 1
-##                            else :
                             maximum_ad_value = self.period_ranges['AD']['max'] - self.interval_size_range['min']/2 + int(not bool(self.interval_size_range['min']%2)) - self.current_interval_step_values[step_index]
                             if (current_ad_value + self.current_interval_step_values[step_index]) <= maximum_ad_value :
                                 new_interval_step_index = step_index
@@ -3357,7 +3427,6 @@ class ApplicationGUI(tk.Frame) :
             last_unforced_value = self.previous_period_text_value[context]
         if self.isNonNegativeInteger(last_unforced_value) :
             if int(last_unforced_value) not in self.current_period_values[context] :
-                #print int(last_unforced_value), 'not in', self.current_period_values[context]
                 if self.current_period_values[context] :
 
                     # Deal with lists of AD values
@@ -3381,10 +3450,8 @@ class ApplicationGUI(tk.Frame) :
                                 if current_period_ad_values[i] < previous_period_ad_value < current_period_ad_values[i+1] :
                                     if button == 'buttonup' :
                                         self.period_text[context].set(str(self.current_period_values[context][i+1]))
-                                        #print 'up set to', self.current_period_values[context][i+1]
                                     elif button == 'buttondown' :
                                         self.period_text[context].set(str(self.current_period_values[context][i]))
-                                        #print 'down set to', self.current_period_values[context][i]
                         else :
                             self.period_text[context].set(str(self.current_period_values[context][0]))
             elif not self.previous_period_text_value[context] :
@@ -3405,7 +3472,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 4 Method: Select Period Postfix: the user opens options
     def selectPeriodPostfix(self, context, selected) :
-        #print 'TODO: selectPeriodPostfix', context, selected
 
         # Set period post-fix (required since OptionMenu menu item commands have been overridden)
         self.period_postfix_text[context].set(selected)
@@ -3420,14 +3486,12 @@ class ApplicationGUI(tk.Frame) :
                 self.period_postfix_menu['until']['menu'].entryconfigure(0, state=tk.NORMAL)
             elif selected == self.period_postfix_keys[1] :
                 self.period_postfix_menu['until']['menu'].entryconfigure(0, state=tk.DISABLED)
-            #self.matchPeriodUntilWithFrom()
 
         # Validate period
         self.validatePeriod(self.period_text[context].get(), 'focusout', context)
 
     # Step 4 Method: Validate Interval Step
     def validateIntervalStep(self, string_value, reason) :
-        #print 'TODO: validateIntervalStep', string_value, reason
 
         # Anticipate warning/error conditions not satisfied
         warning_pending = False
@@ -3455,10 +3519,6 @@ class ApplicationGUI(tk.Frame) :
 
         # Ensure minimum and maximum step constraints are met
         if self.isNonNegativeInteger(string_value) :
-##            if self.deltaWithObservedReferenceDataSelected() :
-##                minimum_value = self.delta_reference_observed_data_interval_size
-##            else :
-##                minimum_value = self.interval_step_range['min']
             minimum_value = self.interval_step_range['min']
             maximum_value = self.calculateCurrentMaximumStepInterval()
             if int(string_value) < minimum_value or int(string_value) > maximum_value :
@@ -3466,8 +3526,6 @@ class ApplicationGUI(tk.Frame) :
                 if show_warnings_if_any :
                     if int(string_value) < minimum_value :
                         warning = 'The minimum step interval is ' + str(minimum_value) + ' years'
-##                        if self.deltaWithObservedReferenceDataSelected() :
-##                            warning += ' since delta is relative to the observed data interval'
                     elif maximum_value == self.interval_step_range['max'] :
                         warning = 'The maximum step interval is ' + str(maximum_value) + ' years'
                     else : # calculated value
@@ -3521,38 +3579,24 @@ class ApplicationGUI(tk.Frame) :
         if self.period_postfix_text['from'].get() == self.period_postfix_keys[0] : # BP
             from_value = 1950 - from_value
 
-        #print 'TODO: calculateCurrentMaximumStepInterval, period from:', from_value
-
         # Calculate maximum step using from value (assuming at least one step)
-##        if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##            maximum_interval_step = self.period_ranges['AD']['max'] - self.interval_size_range['min']/2 - from_value - 1
-##        else :
         maximum_interval_step = self.period_ranges['AD']['max'] - self.interval_size_range['min']/2 - from_value + int(not bool(self.interval_size_range['min']%2))
         if maximum_interval_step < self.interval_step_range['min'] :
             maximum_interval_step = self.interval_step_range['min']
         elif maximum_interval_step > self.interval_step_range['max'] :
             maximum_interval_step = self.interval_step_range['max']
 
-##        # Allow interval step to remain as big as maximum interval size (esp. when no steps)
-##        maximum_interval_size = self.calculateCurrentMaximumIntervalSize(consider_interval_step=False)
-##        #print ' maximum_interval_size:', maximum_interval_size
-##        if maximum_interval_step < maximum_interval_size :
-##            maximum_interval_step = maximum_interval_size
-##
-        #print ' returning', maximum_interval_step
         return maximum_interval_step
 
     # Step 4 Method: Update Interval Step
     def updateIntervalStep(self) :
-        #print 'TODO: updateIntervalStep IN', self.current_valid_interval_step_value
         current_value = self.current_valid_interval_step_value
         maximum_interval = self.calculateCurrentMaximumStepInterval()
         step_values = []
         for value in self.interval_step_values :
-            if value < maximum_interval : #and (not self.deltaWithObservedReferenceDataSelected() or value >= self.delta_reference_observed_data_interval_size) :
+            if value < maximum_interval :
                 step_values.append(value)
         step_values.append(maximum_interval)
-        #print ' step_values', step_values, 'current', current_value
         if current_value > maximum_interval :
             current_value = step_values[:].pop()
             self.interval_step_text.set(str(current_value))
@@ -3567,8 +3611,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 4 Method: Interval Step Spinbox Arrow Press
     def intervalStepSpinboxArrowPress(self) :
-        #print 'TODO: intervalStepSpinboxArrowPress'
-        #print self.interval_step_entry.winfo_children()
 
         # Identify button pressed
         button = self.interval_step_entry.identify(self.winfo_pointerx()-self.interval_step_entry.winfo_rootx(), self.winfo_pointery()-self.interval_step_entry.winfo_rooty())
@@ -3583,7 +3625,6 @@ class ApplicationGUI(tk.Frame) :
         # Find nearest value (up/down) if not in spinbox value list
         if self.isNonNegativeInteger(self.previous_interval_step_text_value) :
             if int(self.previous_interval_step_text_value) not in self.current_interval_step_values :
-                #print int(self.previous_interval_step_text_value), 'not in', self.current_interval_step_values
                 if self.current_interval_step_values :
                     if int(self.previous_interval_step_text_value) < self.current_interval_step_values[0] :
                         self.interval_step_text.set(str(self.current_interval_step_values[0]))
@@ -3595,10 +3636,8 @@ class ApplicationGUI(tk.Frame) :
                                 if self.current_interval_step_values[i] < int(self.previous_interval_step_text_value) < self.current_interval_step_values[i+1] :
                                     if button == 'buttonup' :
                                         self.interval_step_text.set(str(self.current_interval_step_values[i+1]))
-                                        #print 'up set to', self.current_interval_step_values[i+1]
                                     elif button == 'buttondown' :
                                         self.interval_step_text.set(str(self.current_interval_step_values[i]))
-                                        #print 'down set to', self.current_interval_step_values[i]
                         else :
                             self.interval_step_text.set(str(self.current_interval_step_values[0]))
         elif self.current_interval_step_values :
@@ -3630,7 +3669,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 4 Method: Update Current Interval Steps
     def updateCurrentIntervalSteps(self) :
-        #print 'TODO: updateCurrentIntervalSteps'
         data_type = self.data_type_keys[self.data_type_selection.index(self.data_type_text.get())]
         data_action = self.data_action_keys[self.data_action_selection.index(self.data_action_text.get())]
         if data_type == 'map' and self.utilise_delta.get() :
@@ -3705,7 +3743,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 4 Method: Validate Interval Size
     def validateIntervalSize(self, string_value, reason) :
-        #print 'TODO: validateIntervalSize', string_value, reason
 
         # Anticipate warning/error conditions not satisfied
         warning_pending = False
@@ -3742,8 +3779,6 @@ class ApplicationGUI(tk.Frame) :
                         warning = 'The minimum interval size is ' + str(minimum_value) + ' years'
                     elif maximum_value == self.interval_size_range['max'] :
                         warning = 'The maximum interval size is ' + str(maximum_value) + ' years'
-##                    elif maximum_value == self.current_valid_interval_step_value :
-##                        warning = 'The interval size can not be greater than the interval step: ' + str(maximum_value)
                     else : # restricted via period from
                         warning = 'The interval size can not be greater than ' + str(maximum_value) + ' given the current period'
                     self.currently_showing_warning_message = True
@@ -3793,7 +3828,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 4 Method: Interval Size Spinbox Arrow Press
     def intervalSizeSpinboxArrowPress(self) :
-        #print 'TODO: intervalSizeSpinboxArrowPress'
 
         # Identify button pressed
         button = self.interval_size_entry.identify(self.winfo_pointerx()-self.interval_size_entry.winfo_rootx(), self.winfo_pointery()-self.interval_size_entry.winfo_rooty())
@@ -3808,7 +3842,6 @@ class ApplicationGUI(tk.Frame) :
         # Find nearest value (up/down) if not in spinbox value list
         if self.isNonNegativeInteger(self.previous_interval_size_text_value) :
             if int(self.previous_interval_size_text_value) not in self.current_interval_size_values :
-                #print int(self.previous_interval_size_text_value), 'not in', self.current_interval_size_values
                 if self.current_interval_size_values :
                     if int(self.previous_interval_size_text_value) < self.current_interval_size_values[0] :
                         self.interval_size_text.set(str(self.current_interval_size_values[0]))
@@ -3820,10 +3853,8 @@ class ApplicationGUI(tk.Frame) :
                                 if self.current_interval_size_values[i] < int(self.previous_interval_size_text_value) < self.current_interval_size_values[i+1] :
                                     if button == 'buttonup' :
                                         self.interval_size_text.set(str(self.current_interval_size_values[i+1]))
-                                        #print 'up set to', self.current_interval_size_values[i+1]
                                     elif button == 'buttondown' :
                                         self.interval_size_text.set(str(self.current_interval_size_values[i]))
-                                        #print 'down set to', self.current_interval_size_values[i]
                         else :
                             self.interval_size_text.set(str(self.current_interval_size_values[0]))
         elif self.current_interval_size_values :
@@ -3836,7 +3867,6 @@ class ApplicationGUI(tk.Frame) :
     # Step 4 Method: Calculate Current Maximum Interval Size
     def calculateCurrentMaximumIntervalSize(self) : #, consider_interval_step=True) :
         if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) : # months cross year boundaries
-            #maximum_ad_period = self.period_ranges['AD']['max'] - 1
             maximum_bp_period = self.period_ranges['BP']['max'] - 1
         else :
             maximum_bp_period = self.period_ranges['BP']['max']
@@ -3848,30 +3878,24 @@ class ApplicationGUI(tk.Frame) :
             limited_via_period = ((maximum_ad_period - self.current_valid_period_value['until']) + 1)*2
         maximum_value = self.interval_size_range['max']
         if limited_via_period != None :
-            #print 'interval size limited to:', limited_via_period
             if limited_via_period < self.interval_size_range['min'] :
                 maximum_value = self.interval_size_range['min']
             elif limited_via_period > self.interval_size_range['max'] :
                 maximum_value = self.interval_size_range['max']
             else :
                 maximum_value = limited_via_period
-##        if self.current_valid_interval_step_value < maximum_value :
-##            return self.current_valid_interval_step_value
-##        else :
         return maximum_value
 
     # Step 4 Method: Match Interval Size With Step
     def matchIntervalSizeWithStep(self) :
-        #print 'TODO: matchIntervalSizeWithStep'
         current_value = self.current_valid_interval_size_value
         maximum_value = self.calculateCurrentMaximumIntervalSize() 
         size_values = []
         for value in self.interval_size_values :
             if value < maximum_value :
                 size_values.append(value)
-        if maximum_value in self.interval_size_values : #or maximum_value == self.current_valid_interval_step_value :
+        if maximum_value in self.interval_size_values :
             size_values.append(maximum_value)
-        #print 'max:', maximum_value,'size_values:', size_values
         if current_value > maximum_value :
             current_value = size_values[:].pop()
             self.interval_size_text.set(str(current_value))
@@ -3881,14 +3905,6 @@ class ApplicationGUI(tk.Frame) :
             self.interval_size_text.set(str(current_value))
             self.current_interval_size_values = size_values
 
-##    # Step 4 Method: Update Interval Size
-##    def updateIntervalSize(self) :
-##        if self.deltaWithObservedReferenceDataSelected() :
-##            self.interval_size_text.set(str(self.delta_reference_observed_data_interval_size))
-##            self.interval_size_entry.config(state=tk.DISABLED)
-##        else :
-##            self.interval_size_entry.config(state=tk.NORMAL)
-            
     ## Step 5: Delta Methods ##############################################################################################################################################
 
     # Step 5 Method: Delta Selection: the user selects/deselects delta
@@ -3973,7 +3989,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 5 Method: Update Delta Reference Intervals
     def updateDeltaReferenceIntervals(self) :
-        #print 'TODO: updateDeltaReferenceIntervals'
 
         # Current selection code
         current_selection_code = self.delta_reference_period_codes[self.delta_reference_interval_selection.index(self.delta_reference_interval_text.get())]
@@ -4000,15 +4015,12 @@ class ApplicationGUI(tk.Frame) :
 
         # Resolve delta reference previous interval
         previous_value = from_value # - interval_step
-        #previous_value_interval = { 'from' : (previous_value - interval_size/2), 'until' : (previous_value + interval_size/2 - int(not bool(interval_size%2))) }
         if previous_value < 1 :
             from_postfix_key = 'BP'
         if from_postfix_key == 'BP' :
             previous_value = 1950 - previous_value
-            #previous_value_interval = { 'from' : (1950 - previous_value_interval['from']), 'until' : (1950 - previous_value_interval['until']) }
         self.delta_reference_value['previous']['year'] = previous_value
         self.delta_reference_value['previous']['postfix'] = from_postfix_key
-        #self.delta_reference_interval_post_text['previous'] = str(previous_value_interval['from']) + '-' + str(previous_value_interval['until']) +  from_postfix_key
         self.delta_reference_interval_pre_text['previous'] = str(previous_value) + ' ' + from_postfix_key
         previous_entry = self.delta_reference_interval_pre_text['previous'] + self.delta_reference_interval_post_text['previous']
         self.delta_reference_interval_selection[self.delta_reference_period_codes.index('previous')] = previous_entry
@@ -4016,15 +4028,10 @@ class ApplicationGUI(tk.Frame) :
 
         # Resolve delta reference next interval
         next_value = until_value # + interval_step
-        #next_value_interval = { 'from' : (next_value - interval_size/2), 'until' : (next_value + interval_size/2 - int(not bool(interval_size%2))) }
-        #if next_value_interval['until'] > 1950 :
-        #    until_postfix_key = 'AD'
         if until_postfix_key == 'BP' :
             next_value = 1950 - next_value
-            #next_value_interval = { 'from' : (1950 - next_value_interval['from']), 'until' : (1950 - next_value_interval['until']) }
         self.delta_reference_value['next']['year'] = next_value
         self.delta_reference_value['next']['postfix'] = until_postfix_key
-        #self.delta_reference_interval_post_text['next'] = str(next_value_interval['from']) + '-' + str(next_value_interval['until']) +  until_postfix_key
         self.delta_reference_interval_pre_text['next'] = str(next_value) + ' ' + until_postfix_key
         next_entry = self.delta_reference_interval_pre_text['next'] + self.delta_reference_interval_post_text['next']
         self.delta_reference_interval_selection[self.delta_reference_period_codes.index('next')] = next_entry
@@ -4039,7 +4046,6 @@ class ApplicationGUI(tk.Frame) :
         self.delta_reference_interval_menu['menu'].entryconfigure(self.delta_reference_period_codes.index('present-day'), label=present_day_entry)
         
         # Resolve delta reference oldest-record interval
-        # oldest_record_value = self.period_ranges['BP']['max'] - interval_size/2
         oldest_record_value = self.period_ranges['BP']['max-entry']
         self.delta_reference_value['oldest-record'] = { 'year' : oldest_record_value, 'postfix' : 'BP' }
         self.delta_reference_interval_pre_text['oldest-record'] = str(oldest_record_value) + ' BP'
@@ -4061,8 +4067,6 @@ class ApplicationGUI(tk.Frame) :
                 user_defined_postfix_key = 'BP'
             if user_defined_postfix_key == 'BP' :
                 user_defined_value = 1950 - user_defined_value
-##                if user_defined_value > self.period_ranges['BP']['max-entry'] :
-##                    user_defined_value = self.period_ranges['BP']['max-entry']
             self.delta_reference_value['user-defined']['year'] = next_value
             self.delta_reference_value['user-defined']['postfix'] = until_postfix_key
             self.delta_user_defined_reference_text['year'].set(str(user_defined_value))
@@ -4071,7 +4075,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 5 Method: Validate Delta User-Defined Reference
     def validateDeltaUserDefinedReference(self, string_value, reason) :
-        #print 'TODO: validateDeltaUserDefinedReference', string_value, reason
 
         # Anticipate warning/error conditions not satisfied
         warning_pending = False
@@ -4108,10 +4111,6 @@ class ApplicationGUI(tk.Frame) :
         if self.isNonNegativeInteger(string_value) :
             minimum_value = self.period_ranges[postfix_key]['min']
             if postfix_key == 'BP' :
-##                if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##                    maximum_value = self.period_ranges[postfix_key]['max'] - self.current_valid_interval_size_value/2 - 1
-##                else :
-##                    maximum_value = self.period_ranges[postfix_key]['max'] - self.current_valid_interval_size_value/2
                 maximum_value = self.period_ranges['BP']['max-entry']
             else : # AD
                 maximum_value = self.period_ranges[postfix_key]['max'] - self.current_valid_interval_size_value/2 + int(not bool(self.current_valid_interval_size_value%2))
@@ -4175,28 +4174,20 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 5 Method: Update Delta User-Defined Reference Spinbox List
     def updateDeltaUserDefinedReferenceSpinboxList(self) :
-        #print 'TODO: updateDeltaUserDefinedReferenceSpinboxList'
         current_value = self.current_valid_delta_user_defined_reference_value
         interval_step = self.current_valid_interval_step_value
         if self.delta_user_defined_reference_text['postfix'].get() == self.period_postfix_keys[0] : # BP
-##            if len(self.selected_time_unit_month_indices) < 12 and self.selected_time_unit_month_indices.count(0) and self.selected_time_unit_month_indices.count(11) :
-##                maximum_value = self.period_ranges['BP']['max'] - self.current_valid_interval_size_value/2 - 1
-##            else :
-##                maximum_value = self.period_ranges['BP']['max'] - self.current_valid_interval_size_value/2
             maximum_value = self.period_ranges['BP']['max-entry']
             values = range((maximum_value - (maximum_value - current_value) % interval_step), self.period_ranges['BP']['min']-1, -1*interval_step)
         elif self.delta_user_defined_reference_text['postfix'].get() == self.period_postfix_keys[1] : # AD
             maximum_value = self.period_ranges['AD']['max'] - self.current_valid_interval_size_value/2 + int(not bool(self.current_valid_interval_size_value%2))
             values = range((self.period_ranges['AD']['min'] + (current_value - self.period_ranges['AD']['min']) % interval_step), maximum_value+1, interval_step)
-        #print 'max:', maximum_from_value, 'from values:', values
         self.delta_user_defined_reference_entry.config(values=tuple(map(str, values)))
         self.delta_user_defined_reference_text['year'].set(str(current_value))
         self.current_delta_user_defined_reference_values = values[:]
-        #print values[:5], '...', values[(len(values)-5):]
 
     # Step 5 Method: Delta User-Defined Reference Spinbox Arrow Press
     def deltaUserDefinedReferenceSpinboxArrowPress(self) :
-        #print 'TODO: deltaUserDefinedReferenceSpinboxArrowPress'
 
         # Identify button pressed
         button = self.delta_user_defined_reference_entry.identify(self.winfo_pointerx()-self.delta_user_defined_reference_entry.winfo_rootx(), self.winfo_pointery()-self.delta_user_defined_reference_entry.winfo_rooty())
@@ -4243,7 +4234,6 @@ class ApplicationGUI(tk.Frame) :
             last_unforced_value = self.previous_delta_user_defined_reference_text_value
         if self.isNonNegativeInteger(last_unforced_value) :
             if int(last_unforced_value) not in self.current_delta_user_defined_reference_values :
-                #print int(last_unforced_value), 'not in', self.current_delta_user_defined_reference_values
                 if self.current_delta_user_defined_reference_values :
 
                     # Deal with lists of AD values
@@ -4267,10 +4257,8 @@ class ApplicationGUI(tk.Frame) :
                                 if current_period_ad_values[i] < previous_period_ad_value < current_period_ad_values[i+1] :
                                     if button == 'buttonup' :
                                         self.delta_user_defined_reference_text['year'].set(str(self.current_delta_user_defined_reference_values[i+1]))
-                                        #print 'up set to', self.current_period_values[context][i+1]
                                     elif button == 'buttondown' :
                                         self.delta_user_defined_reference_text['year'].set(str(self.current_delta_user_defined_reference_values[i]))
-                                        #print 'down set to', self.current_period_values[context][i]
                         else :
                             self.delta_user_defined_reference_text['year'].set(str(self.current_delta_user_defined_reference_values[0]))
             elif not self.previous_delta_user_defined_reference_text_value :
@@ -4287,7 +4275,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 5 Method: Select Delta User-Defined Reference Postfix
     def selectDeltaUserDefinedReferencePostfix(self, selected) :
-        #print 'TODO: selectDeltaUserDefinedReferencePostfix', selected
 
         # Set post-fix (required since OptionMenu menu item commands have been overridden)
         self.delta_user_defined_reference_text['postfix'].set(selected)
@@ -4353,7 +4340,6 @@ class ApplicationGUI(tk.Frame) :
             self.generation_status_bar['maximum'] += (self.current_interval_steps + int(not self.utilise_delta.get())) * self.generation_status_times['view']['map']
             if self.region_is_time_dependent[self.current_region] :
                 self.generation_status_bar['maximum'] += (self.current_interval_steps + int(not self.utilise_delta.get())) * self.generation_status_times['view']['time-dependent']
-##            self.generation_status_bar['maximum'] += (self.current_interval_steps + int(not self.utilise_delta.get())) * self.generation_status_times['view']['masks']
         else :
             self.generation_status_bar['maximum'] += self.generation_status_times['view']['series'] * (1 + int(self.time_unit_is_all_months)*11)
         self.generation_status_bar.grid()
@@ -4402,6 +4388,7 @@ class ApplicationGUI(tk.Frame) :
         # Gather parameter data from the climate data files
         data_extraction_ok = False
         try :
+            #print strftime("%Y-%m-%d %H:%M:%S", localtime())
             parameter_data = self.data_file_helper.generateParameterData(parameter_group_code=parameter_group_code,
                                                                          parameter_code=parameter_code,
                                                                          period_ad_from=period_ad_from,
@@ -4415,8 +4402,11 @@ class ApplicationGUI(tk.Frame) :
                                                                          generate_grids=generate_grids,
                                                                          all_months=self.time_unit_is_all_months,
                                                                          correct_bias=self.utilise_bias_correction.get())
+            #print strftime("%Y-%m-%d %H:%M:%S", localtime())
             data_extraction_ok = True
+            self.data_file_helper.clearNetCdfDataCache()
         except Exception, e :
+            self.data_file_helper.clearNetCdfDataCache()
             showerror('Data extraction error', str(e))
             print >> sys.stderr, 'Data extraction error:', e
 
@@ -4499,9 +4489,28 @@ class ApplicationGUI(tk.Frame) :
                 self.viewEditRegion(button_pressed=False)
                 return True
 
-        # Automatically bring option for setting climate data location if it does not exist already
-        if not self.data_file_helper.climateDataIsPresent() :
-            self.configureClimateDataLocation()
+        # Show warning if the climate data is not present or configured
+        parameter_group_code = self.parameter_group_selection_map[self.parameter_group_text.get()]
+        parameter_code = self.parameter_via_group_selection_map[parameter_group_code][self.parameter_via_group_text[parameter_group_code].get()]
+        period_ad_from = int(self.period_text['from'].get())
+        period_ad_until = int(self.period_text['until'].get())
+        if self.period_postfix_text['from'].get() == self.period_postfix_keys[0] : # BP
+            period_ad_from = 1950 - period_ad_from
+        if self.period_postfix_text['until'].get() == self.period_postfix_keys[0] : # BP
+            period_ad_until = 1950 - period_ad_until
+        parameters_required = self.data_file_helper.getDataParametersRequired(parameter_group_code, parameter_code)
+        climate_data_is_present = self.data_file_helper.climateDataIsPresent(parameters=parameters_required, years={ 'from_year_ad' : period_ad_from, 'until_year_ad' : period_ad_until })
+        if self.utilise_delta.get() :
+            delta_reference_period_code = self.delta_reference_period_codes[self.delta_reference_interval_selection.index(self.delta_reference_interval_text.get())]
+            delta_ref_period_ad = self.delta_reference_value[delta_reference_period_code]['year']
+            if self.delta_reference_value[delta_reference_period_code]['postfix'] == self.period_postfix_keys[0] : # BP
+                delta_ref_period_ad = 1950 - delta_ref_period_ad
+            climate_data_is_present = climate_data_is_present and self.data_file_helper.climateDataIsPresent(parameters=parameters_required, years={ 'from_year_ad' : delta_ref_period_ad, 'until_year_ad' : delta_ref_period_ad })
+        if not climate_data_is_present :
+            showwarning('Climate data not present or configured', 'The required climate data is not present or configured. Either:\n' +
+                        '* Download the required climate data\n' +
+                        '* Configure the local directory for existing data\n' +
+                        '* Configure the URL of remote data (slower for ongoing use)')
             return True
 
         # Details complete
@@ -4625,8 +4634,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 7 Method: Configure View Grid Plot Window (Event)
     def __configureViewGridPlotWindow(self, event) :
-        #print 'resizeViewClimateDataWindow', 'event', event.width, event.height, 'window', self.view_climate_data_window.winfo_width(), self.view_climate_data_window.winfo_height(), '(req)', self.view_climate_data_window.winfo_reqwidth(), self.view_climate_data_window.winfo_reqheight(), 'figure', self.view_climate_data_figure.get_size_inches()
-        #print 'canvas', self.view_climate_data_canvas.get_tk_widget().winfo_width(), self.view_climate_data_canvas.get_tk_widget().winfo_height(), '(req)', self.view_climate_data_canvas.get_tk_widget().winfo_reqwidth(), self.view_climate_data_canvas.get_tk_widget().winfo_reqheight()
 
         # Ignore config event?
         if self.ignore_grid_plot_config_events :
@@ -4636,8 +4643,6 @@ class ApplicationGUI(tk.Frame) :
 
         if (event.width == self.view_climate_data_window.winfo_width() and event.height == self.view_climate_data_window.winfo_height() and
             (event.width != self.view_climate_data_window.winfo_reqwidth() or event.height != self.view_climate_data_window.winfo_reqheight())) :
-
-            #print 'resizing'
 
             # Resize canvas (and figure)
             padding = 12 # difference when set
@@ -4681,7 +4686,7 @@ class ApplicationGUI(tk.Frame) :
 
             # Set colorbar width relative to row:col configuration
             config_ratio = 1.0*best_config[0]/best_config[1]
-            colourbar_width = maximum_width*(0.70+np.log2(config_ratio)*0.1) # 0.75
+            colourbar_width = maximum_width*(0.70+np.log2(config_ratio)*0.1)
             colourbar_height = 0.015*colourbar_width
 
             # Update or adjust figure
@@ -4710,7 +4715,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 7 Method: Update Grid Plots (plot contents)
     def updateGridPlots(self, update=[]) :
-        #print 'TODO: updateGridPlots', update
 
         # Remove current plot frame
         self.view_climate_data_frame.grid_remove()
@@ -4736,7 +4740,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 7 Method: Create Grid Plots (plot contents)
     def createGridPlots(self, parameter_data, region_masks, figure_width=None, figure_height=None) :
-        #print 'TODO: createGridPlots', figure_width, figure_height
 
         # Resolve selected parameter/group codes
         parameter_group_code = self.parameter_group_selection_map[self.parameter_group_text.get()]
@@ -4836,13 +4839,8 @@ class ApplicationGUI(tk.Frame) :
                 else :
                     grid_plot_titles.append(str(ad_year) + ' AD')
 
-        # Determine parameter colour palette # TODO: resolve any extended colour palettes
+        # Determine parameter colour palette
         colour_palette = self.map_colour_palette
-##        if colour_palette == 'auto' :
-##            if self.utilise_delta.get() :
-##                colour_palette = self.parameter_default_colour_palette[parameter_group_code][parameter_code]['delta']
-##            else :
-##                colour_palette = self.parameter_default_colour_palette[parameter_group_code][parameter_code]['value']
 
         # Resolve region box for user-defined region if required
         region_box = self.region_bounding_box[self.current_region].copy()
@@ -5091,11 +5089,11 @@ class ApplicationGUI(tk.Frame) :
         # Plot the region map
         self.view_climate_data_canvas = FigureCanvasTkAgg(self.view_climate_data_figure, master=self.view_climate_data_frame)
         self.view_climate_data_canvas.show()
-        self.view_climate_data_canvas.get_tk_widget().grid(row=0, column=0) #.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        self.view_climate_data_canvas.get_tk_widget().grid(row=0, column=0)
         self.view_climate_data_frame.grid(row=0, column=0, padx=0, pady=0)
 
         # Add toolbar
-        toolbar = NavigationToolbar2TkAgg(self.view_climate_data_canvas, self.view_climate_data_frame) #self.view_climate_data_window)
+        toolbar = NavigationToolbar2TkAgg(self.view_climate_data_canvas, self.view_climate_data_frame)
         toolbar.update()
         toolbar.grid(row=1, column=0, padx=0, pady=0)
         toolbar.grid_remove()
@@ -5154,8 +5152,6 @@ class ApplicationGUI(tk.Frame) :
         # Create a data frame from statistics
         if self.public_release or True :
             statistic_fields_included = ['minimum', 'percentile_5th', 'percentile_50th', 'percentile_95th', 'maximum', 'area_mean']
-##        else :
-##            statistic_fields_included = self.grid_region_statistics_keys # ['minimum', 'percentile_5th', 'percentile_25th', 'percentile_50th', 'percentile_75th', 'percentile_95th', 'maximum', 'grid_mean', 'grid_stdev', 'area_mean', 'area_stdev']
         if self.current_region != 'globe' :
             indexes = ['Region', year_title]
             region_list = []
@@ -5178,7 +5174,7 @@ class ApplicationGUI(tk.Frame) :
         # Display statistics
         display_font = Font(font='TkFixedFont')
         statistics_text = self.current_plot_title + '\n' + '-'*len(self.current_plot_title) + '\n' + self.current_grid_plot_statistics_data_frame.to_string(index=False, float_format=(lambda f: '%.3f'%f))
-        display_label_font = Font(family=display_font.cget('family'), size=display_font.cget('size')) #, weight='bold')
+        display_label_font = Font(family=display_font.cget('family'), size=display_font.cget('size'))
         tk.Label(self.grid_plot_statistics_window, text=statistics_text, font=display_label_font, bg='white', justify=tk.LEFT, padx=10, pady=10).grid(row=0, column=0, sticky=tk.NW+tk.SE, padx=0, pady=0)
 
         # Save and close buttons
@@ -5241,7 +5237,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 7 Method: View Series Plot
     def viewSeriesPlot(self, parameter_data) :
-        #print 'TODO: viewSeriesPlot'
 
         # Remove existing climate data window
         if hasattr(self, 'view_climate_data_window') :
@@ -5255,7 +5250,7 @@ class ApplicationGUI(tk.Frame) :
         self.current_view_climate_data_window_type = 'series'
 
         # Parameter range for time series
-        self.parameter_range_for_time_series = { 'temperature' : {}, 'precipitation' : {}, 'humidity' : {}, 'sea-level-pressure' : {}, 'southern-oscillation' : {} }
+        self.parameter_range_for_time_series = { 'temperature' : {}, 'precipitation' : {}, 'humidity' : {}, 'sea-level-pressure' : {} } #, 'southern-oscillation' : {} }
         for parameter in ['mean-temperature', 'minimum-temperature', 'maximum-temperature'] :
             self.parameter_range_for_time_series['temperature'][parameter] = { 'min' : None, 'max' : None }
         for parameter in ['diurnal-temperature-range', 'annual-temperature-range'] :
@@ -5267,8 +5262,8 @@ class ApplicationGUI(tk.Frame) :
         self.parameter_range_for_time_series['humidity']['specific-humidity'] = { 'min' : 0, 'max' : None }
         self.parameter_range_for_time_series['humidity']['relative-humidity'] = { 'min' : 0, 'max' : 100 }
         self.parameter_range_for_time_series['sea-level-pressure']['sea-level-pressure'] = { 'min' : None, 'max' : None }
-        self.parameter_range_for_time_series['southern-oscillation']['soi'] = { 'min' : None, 'max' : None }
-        self.parameter_range_for_time_series['southern-oscillation']['enso'] = { 'min' : None, 'max' : None }
+        #self.parameter_range_for_time_series['southern-oscillation']['soi'] = { 'min' : None, 'max' : None }
+        #self.parameter_range_for_time_series['southern-oscillation']['enso'] = { 'min' : None, 'max' : None }
 
         # Plot options (for gridded data only)
         if self.public_release :
@@ -5311,18 +5306,14 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 7 Method: Configure View Series Plot Window (Event)
     def __configureViewSeriesPlotWindow(self, event) :
-        #print 'TODO: __configureViewSeriesPlotWindow', 'event', event.width, event.height, 'window', self.view_climate_data_window.winfo_width(), self.view_climate_data_window.winfo_height(), '(req)', self.view_climate_data_window.winfo_reqwidth(), self.view_climate_data_window.winfo_reqheight(), 'fig', self.view_climate_data_figure.get_figwidth(), self.view_climate_data_figure.get_figheight()
 
         # Ignore config event?
         if self.ignore_series_plot_config_events :
-            #print 'ignoring:', self.ignore_series_plot_config_events
             self.ignore_series_plot_config_events -= 1
             return True
 
         if (event.width == self.view_climate_data_window.winfo_width() and event.height == self.view_climate_data_window.winfo_height() and
             (event.width != self.view_climate_data_window.winfo_reqwidth() or event.height != self.view_climate_data_window.winfo_reqheight())) :
-
-            #print 'resizing'
 
             # Resize canvas (and figure)
             padding = 12 # difference when set
@@ -5369,7 +5360,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 7 Method: Create Series Plot
     def createSeriesPlot(self, parameter_data, figure_width=None, figure_height=None) :
-        #print 'TODO: createSeriesPlot', figure_width, figure_height
 
         # Resolve selected parameter/group codes
         parameter_group_code = self.parameter_group_selection_map[self.parameter_group_text.get()]
@@ -5434,7 +5424,7 @@ class ApplicationGUI(tk.Frame) :
 
         # Plot 12 subplots if all months
         if self.time_unit_is_all_months :
-            subplots = 12 # self.month_names
+            subplots = 12
             plot_rows = 4
             plot_columns = 3
             initial_height = 9.0
@@ -5600,7 +5590,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 7 Method: Select Series Plot Interval: the user selects an option
     def selectSeriesPlotInterval(self, selected) :
-        #print 'TODO: selectSeriesPlotInterval', selected
 
         self.series_plot_interval_text.set(self.series_plot_config[selected]['name']) # needed as OptionMenu menu item commands have been overridden
         self.current_series_plot_option = selected
@@ -5619,7 +5608,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 7 Method: Select data file type: the user selects an option
     def selectDataFileType(self, selected) :
-        #print 'TODO: selectDataFileType', selected
 
         self.data_file_type_text.set(self.data_file_type_selection[self.data_file_type_keys.index(selected)]) # needed as OptionMenu menu item commands have been overridden
 
@@ -5628,7 +5616,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 7 Method: Select Generation Directory
     def selectGenerationDirectory(self) :
-        #print 'TODO: selectGenerationDirectory'
 
         # Place focus on select directory button
         self.generation_directory_button.focus_set()
@@ -5678,12 +5665,8 @@ class ApplicationGUI(tk.Frame) :
             # Enable the generate button
             self.generate_button.configure(state=tk.NORMAL)
 
-        # Update workflow status
-        self.updateStepsCompleted()
-
     # Step 7 Method: Generate Data Files
     def generateDataFiles(self) :
-        #print 'TODO: generateDataFiles'
 
         # Place focus on generate button
         self.generate_button.focus_set()
@@ -5710,7 +5693,6 @@ class ApplicationGUI(tk.Frame) :
         else :
             self.generation_status_bar['maximum'] += self.generation_status_times['files']['series']
             generation_status = self.generation_status_options['files']['series']['data']
-        #print'generation_status_bar max:', self.generation_status_bar['maximum']
         self.generation_status_bar.grid()
         self.update_idletasks()
         self.generate_label_text.set(' '*50)
@@ -5802,7 +5784,9 @@ class ApplicationGUI(tk.Frame) :
                                                                                  all_months=self.time_unit_is_all_months,
                                                                                  correct_bias=self.utilise_bias_correction.get())
                     self.parameter_data = parameter_data[0].copy()
+                    self.data_file_helper.clearNetCdfDataCache()
                 except Exception, e :
+                    self.data_file_helper.clearNetCdfDataCache()
                     showerror('Data extraction error', str(e))
                     print >> sys.stderr, 'Data extraction error:', e
 
@@ -5868,7 +5852,9 @@ class ApplicationGUI(tk.Frame) :
                                                                              all_months=self.time_unit_is_all_months,
                                                                              correct_bias=self.utilise_bias_correction.get())
                 self.parameter_data = parameter_data
+                self.data_file_helper.clearNetCdfDataCache()
             except Exception, e :
+                self.data_file_helper.clearNetCdfDataCache()
                 showerror('Data extraction error', str(e))
                 print >> sys.stderr, 'Data extraction error:', e
                 generation_status = 'Data extraction error'
@@ -5899,7 +5885,8 @@ class ApplicationGUI(tk.Frame) :
                     if self.public_release :
                         statistic_fields_included = ['minimum', 'percentile_5th', 'percentile_50th', 'percentile_95th', 'maximum', 'area_mean']
                     else :
-                        statistic_fields_included = self.grid_region_statistics_keys # ['minimum', 'percentile_5th', 'percentile_25th', 'percentile_50th', 'percentile_75th', 'percentile_95th', 'maximum', 'grid_mean', 'grid_stdev', 'area_mean', 'area_stdev']
+                        statistic_fields_included = self.grid_region_statistics_keys
+                        # ['minimum', 'percentile_5th', 'percentile_25th', 'percentile_50th', 'percentile_75th', 'percentile_95th', 'maximum', 'grid_mean', 'grid_stdev', 'area_mean', 'area_stdev']
                     if self.time_unit_is_all_months :
                         months = self.month_names
                     else :
@@ -5923,7 +5910,9 @@ class ApplicationGUI(tk.Frame) :
                                 month_description = description
                             self.data_file_helper.generateSeriesDataFile(data_frame=series_data_frames[i], file_type=data_file_type, month=month.lower(), description=month_description, data_units=data_units)
                         generation_status = 'Series data file' + 's'*(len(months) > 1) + ' generated in \"' + self.data_file_helper.getFileGenerationDirectoryName() + '\"'
+                        self.data_file_helper.clearNetCdfDataCache()
                     except Exception, e :
+                        self.data_file_helper.clearNetCdfDataCache()
                         showerror('File generation error', str(e))
                         print >> sys.stderr, 'File generation error:', e
                         generation_status = 'File generation error'
@@ -5953,7 +5942,9 @@ class ApplicationGUI(tk.Frame) :
                     try :
                         self.data_file_helper.generateSeriesDataFile(data_frame=series_data_frame, file_type=data_file_type, description=description, data_units=data_units)
                         generation_status = 'Series data file generated in \"' + self.data_file_helper.getFileGenerationDirectoryName() + '\"'
+                        self.data_file_helper.clearNetCdfDataCache()
                     except Exception, e :
+                        self.data_file_helper.clearNetCdfDataCache()
                         showerror('File generation error', str(e))
                         print >> sys.stderr, 'File generation error:', e
                         generation_status = 'File generation error'
@@ -6035,7 +6026,6 @@ class ApplicationGUI(tk.Frame) :
 
     # Step 7 Method: Update Tool Generation Logs
     def updateToolGenerationLogs(self) :
-        #print 'TODO: updateToolGenerationLogs'
 
         tool_option_values = self.getToolOptions()
 
@@ -6233,7 +6223,10 @@ class ApplicationGUI(tk.Frame) :
                 scheme_interval = (data_max - data_min)/11.0
 
         # Return colour scheme boundary values
-        return np.arange(data_min, data_max+0.1*scheme_interval, scheme_interval)
+        if scheme_interval :
+            return np.arange(data_min, data_max+0.1*scheme_interval, scheme_interval)
+        else :
+            return np.arange(data_min-1.0, data_max+1.2, 0.2)
 
     # Shared Method: Adjust Colour Scheme Zero Boundaries (used in menu colour edit and grid plot methods)
     def adjustColourSchemeZeroBoundaries(self, colour_scheme_boundaries) :
@@ -6295,7 +6288,7 @@ class ApplicationGUI(tk.Frame) :
 
     # Generic Method: Ensures menu selection triggers entry field validation focusout events
     def shiftFocus(self, force_after=False, context=None) :
-        if not(context) : # and self.validation_warning_pending == context) :
+        if not(context) :
             self.focus_set()
         if force_after and self.validation_warning_pending :
             self.force_shift_focus = True
@@ -6351,138 +6344,11 @@ class ApplicationGUI(tk.Frame) :
         except Exception, e :
             return False
 
-#####################################################################################################################################################################################################################
-#####################################################################################################################################################################################################################
-#####################################################################################################################################################################################################################
-#####################################################################################################################################################################################################################
-
-
-    # Workflow Methods : Ensures user has completed steps before enabling downscaling generation
-
-    # Update workflow progress
-    def updateStepsCompleted(self) :
-        True
-
-    def dummy(self) :
-        # Update completed status
-        self.process_step['data_type']['completed'] = self.dataTypeCompleted()
-        self.process_step['parameter_selection']['completed'] = self.parameterSelectionCompleted()
-        self.process_step['generation']['completed'] = self.generationCompleted()
-
-##        # Update parameter selection enable/disable
-##        if not(self.dependentStepsToBeCompleted('parameter_selection')) :
-##            self.baseline_year_entry.configure(state=)
-##            self.projections_from_year_menu.configure(state=tk.NORMAL)
-##            self.projections_until_year_menu.configure(state=tk.NORMAL)
-##            self.data_mode_menu.configure(state=tk.NORMAL)
-##            self.downscale_alignment_method_menu.configure(state=tk.NORMAL)
-##        else :
-##            self.baseline_year_entry.configure(state=tk.DISABLED)
-##            self.projections_from_year_menu.configure(state=tk.DISABLED)
-##            self.projections_until_year_menu.configure(state=tk.DISABLED)
-##            self.data_mode_menu.configure(state=tk.DISABLED)
-##            self.downscale_alignment_method_menu.configure(state=tk.DISABLED)
-##
-##        # Update file generation status
-##        steps_to_be_completed = self.dependentStepsToBeCompleted('generation')
-##        if steps_to_be_completed :
-##            self.generation_directory_button.configure(state=tk.DISABLED)
-##            self.generate_button.configure(state=tk.DISABLED)
-##            if len(steps_to_be_completed) > 1 :
-##                self.generate_label_text.set('Complete steps ' + string.join(steps_to_be_completed, ', '))
-##            else :
-##                self.generate_label_text.set('Complete step ' + str(steps_to_be_completed.pop()))
-##        elif self.process_step['generation']['completed'] :
-##            self.generate_label_text.set(str(self.generated_file_count) + ' downscaled R files generated in \"' + self.downscale_helper.getRDirName()+'\"')
-##            self.r_file_generate_complete = False # Ready for next generation
-##        elif self.r_file_generate_error :
-##            self.generate_label_text.set('Error generating files')
-##            self.r_file_generate_error = False # Ready to try again
-##        else :
-##            if self.generate_directory_ok :
-##                self.generation_directory_button.configure(state=tk.NORMAL)
-##                self.generate_button.configure(state=tk.NORMAL)
-##                self.generate_label_text.set('Ready to generate downscaled R files')
-##            else :
-##                self.generation_directory_button.configure(state=tk.NORMAL)
-##                self.generate_button.configure(state=tk.DISABLED)
-##                self.generate_label_text.set('Complete this step')
-
-    # Workflow: Data Type step is complete when ...
-    def dataTypeCompleted(self) :
-        return True
-
-    # Workflow: Parameter selection step is complete when ...
-    def parameterSelectionCompleted(self) :
-
-        conditions_satisfied = 0
-        total_conditions = 7
-
-##        baseline_year = None
-##        projections_from_year = None
-##        projections_until_year = None
-##
-##        # Condition 1: Baseline year has value
-##        if self.baseline_year_text.get() :
-##            baseline_year = int(self.baseline_year_text.get())
-##            conditions_satisfied += 1
-##        
-##        # Condition 2: Baseline year matches one obtained from Q file
-##        if baseline_year and baseline_year == self.downscale_helper.getQBaselineYear() :
-##            baseline_year = int(self.baseline_year_text.get())
-##            conditions_satisfied += 1
-##
-##        # Condition 3: Projections from year has value
-##        if self.projections_from_year_text.get() :
-##            projections_from_year = int(self.projections_from_year_text.get())
-##            conditions_satisfied += 1
-##
-##        # Condition 4: Projections until year has value
-##        if self.projections_until_year_text.get() :
-##            projections_until_year = int(self.projections_until_year_text.get())
-##            conditions_satisfied += 1
-##
-##        # Condition 5: Projections from year <= until year
-##        if projections_from_year <= projections_until_year :
-##            conditions_satisfied += 1
-##
-##        # Condition 6: Data mode has value
-##        if self.data_mode_text.get() :
-##            conditions_satisfied += 1
-##
-##        # Condition 7: Downscale alignment method has value
-##        if self.downscale_alignment_method_text.get() :
-##            conditions_satisfied += 1
-##
-##        return conditions_satisfied == total_conditions
-
-    # Workflow: Downscale generation step is complete when indicated via flag
-    def generationCompleted(self) :
-        return False #self.r_file_generate_complete
-
-    # General workflow method: Determine what steps still need to be completed
-    def dependentStepsToBeCompleted(self, step, process_step=None) :
-        if not process_step :
-            process_step = self.process_step
-        step_numbers = []
-        for dependent in process_step[step]['dependents'] :
-            if not process_step[dependent]['completed'] :
-                step_numbers.append(process_step[dependent]['number'])
-        return step_numbers
-
-    # Validation Methods: Ensure correct user inputs
-        
-    # Event handlers
-
-    # Key releases on entry fields update the workflow steps completed
-    def __keyReleaseOnEntryField(self, event) :
-        self.updateStepsCompleted()
-
 # END ApplicationGUI
 
 ## Main program
 
-application_name = 'PaleoView v0.2'
+application_name = 'PaleoView v0.3'
 
 # Set user application data directory
 if MAC_VERSION :

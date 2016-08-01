@@ -1,6 +1,7 @@
-climate_data_source = 'url'
-climate_data_url = 'https://dl.dropboxusercontent.com/sh/upmj85imokepgts/'
+climate_data_source = local
+climate_data_url = http://203.83.208.84/
 climate_data_directory = 
+climate_data_local_data_type = netcdf
 default_file_generation_directory = 
 region_mask_directory = path.join(getcwd(), 'Map Data')
 maximum_time_series_points = 500
