@@ -16,7 +16,7 @@ data_files.append((r'docx-data\templates', glob(r'C:\Python27\Lib\site-packages\
 #data_files.append((r'Map Data', glob(r'C:\afat32\Dropbox\GlobalEcologyGroup\ProjectCode\PaleoclimateTool\v0.1\Map Data\*')))
 setup(
     data_files=data_files,
-    windows=['paleo_view_v0_3.py'],
+    windows=['paleo_view_v0_4.py'],
 )
 #    options={'py2exe': { 'includes': 'patsy' }}
 #    options={'py2exe': { 'excludes': ['_gtkagg', '_qt4agg', '_agg2', '_cairo', '_cocoaagg', '_fltkagg', '_gtk', '_gtkcairo'] }}

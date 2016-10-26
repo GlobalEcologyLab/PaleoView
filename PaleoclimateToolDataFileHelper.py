@@ -67,8 +67,7 @@ class PaleoclimateToolDataFileHelper :
 
         # Climate data parameters in presented order
         self.data_parameters = ['mean_temperature', 'minimum_temperature', 'maximum_temperature',
-                                'specific_humidity', 'relative_humidity',
-                                'precipitation', 'sea_level_pressure']
+                                'specific_humidity', 'relative_humidity', 'precipitation', 'sea_level_pressure']
 
         # Parameter directory code map
         self.parameter_directory_code_map = { 'mean_temperature' : 'T', 'minimum_temperature' : 'Tmin', 'maximum_temperature' : 'Tmax',
@@ -132,7 +131,7 @@ class PaleoclimateToolDataFileHelper :
                                                     'precipitation' : 'Precip', 'sea_level_pressure' : 'MSLP' }
         # Bias correction file code map
         self.bias_correction_file_code_map = { 'mean_temperature' : 'Delta', 'minimum_temperature' : 'Delta', 'maximum_temperature' : 'Delta',
-                                               'specific_humidity' : 'Delta', 'relative_humidity' : 'Delta',
+                                               'specific_humidity' : 'Delta', 'relative_humidity' : ['Modelled', 'Observed'],
                                                'precipitation' : 'Error', 'sea_level_pressure' : 'Delta' }
 
         # Bias correction file template
@@ -146,7 +145,11 @@ class PaleoclimateToolDataFileHelper :
                                              'minimum_temperature' : 'climate_data_grids + bias_correction_data_grids',
                                              'maximum_temperature' : 'climate_data_grids + bias_correction_data_grids',
                                              'specific_humidity' : 'climate_data_grids*bias_correction_data_grids',
-                                             'relative_humidity' : '(1 - (1 - climate_data_grids/100)**bias_correction_data_grids)*100',
+                                             'relative_humidity' : ('(climate_data_grids <= bias_correction_data_grids[:,0])' + # Muncorr <= Mref
+                                                                    '* (climate_data_grids*(bias_correction_data_grids[:,1]/bias_correction_data_grids[:,0]))+' +
+                                                                    '(climate_data_grids > bias_correction_data_grids[:,0])' + # Muncorr > Mref
+                                                                    '* (bias_correction_data_grids[:,1]+((100-bias_correction_data_grids[:,1])/(100-bias_correction_data_grids[:,0]))*(climate_data_grids-bias_correction_data_grids[:,0]))'
+                                                                    ),
                                              'precipitation' : 'climate_data_grids*bias_correction_data_grids',
                                              'sea_level_pressure' : 'climate_data_grids + bias_correction_data_grids' }
 
@@ -178,6 +181,8 @@ class PaleoclimateToolDataFileHelper :
 
     # Set climate data url
     def setClimateDataUrl(self, url) :
+        if url :
+            url = url.rstrip()
         if url and url[-1] != '/' :
             url += '/'
         self.climate_data_url = url
@@ -219,13 +224,28 @@ class PaleoclimateToolDataFileHelper :
     # Check climate data url
     def checkClimateDataUrl(self) :
         try :
+            #print 'check 0', self.climate_data_url
             current_url_file = url.urlopen((self.climate_data_url + 'current_url.txt'))
+            current_url = current_url_file.readline().rstrip()
             current_url_file.close()
-            return True
+            if self.climate_data_url == current_url :
+                #print 'check 1', self.climate_data_url, current_url
+                return True
+            else :
+                self.setClimateDataUrl(current_url)
+                #print 'check 2'
+                return False         
         except Exception, e :
             current_url_file = url.urlopen('http://homepage.cs.latrobe.edu.au/shaythorne/paleoview/current_url.txt')
-            self.climate_data_url = current_url_file.readline()
-            current_url_file.close()
+            self.setClimateDataUrl(current_url_file.readline().rstrip())
+            try :
+                current_first_url_file = url.urlopen((self.climate_data_url + 'current_url.txt'))
+                current_first_url_file.close()
+                #print 'check 3'
+            except Exception, e :
+                self.setClimateDataUrl(current_url_file.readline().rstrip()) # select second url
+                #print 'check 4'
+            current_url_file.close()                
             return False
 
     # Climate data is present
@@ -847,21 +867,31 @@ class PaleoclimateToolDataFileHelper :
         if self.cached_bias_correction_data_grids.has_key(parameter) and self.cached_bias_correction_data_grids[parameter].has_key(month_index) :
             return self.cached_bias_correction_data_grids[parameter][month_index]
         elif self.bias_correction_directory_code_map.has_key(parameter) :
-            data_file = self.bias_correction_file_template.replace('{bias_correction_directory_code}', self.bias_correction_directory_code_map[parameter])
-            data_file = data_file.replace('{parameter_file_code}', self.parameter_file_code_map[parameter])
-            data_file = data_file.replace('{month_code}', self.month_codes[month_index])
-            data_file = data_file.replace('{bias_correction_file_code}', self.bias_correction_file_code_map[parameter])
-            data_file = path.join(self.bias_correction_directory['path'], data_file)
-            if path.exists(data_file) :
-                data_grid = np.genfromtxt(data_file)
-                if not self.cached_bias_correction_data_grids.has_key(parameter) :
-                    self.cached_bias_correction_data_grids[parameter] = {}
-                self.cached_bias_correction_data_grids[parameter][month_index] = data_grid
-                return data_grid
+            if type(self.bias_correction_file_code_map[parameter]) == list :
+                bias_correction_file_codes = self.bias_correction_file_code_map[parameter]
             else :
-                #print 'TODO: handle missing climate data:', path.join(self.splitPath(split_path['directory'])['name'], split_path['name'])
-                exception_message = 'Could not find ' + parameter.replace('_', ' ').title() + ' bias correction data for ' + self.month_names[month_index] + '. Expected bias correction data file: \n' + data_file
-                raise Exception(exception_message)
+                bias_correction_file_codes = [self.bias_correction_file_code_map[parameter]]
+            data_grids = []
+            for bias_correction_file_code in bias_correction_file_codes :
+                data_file = self.bias_correction_file_template.replace('{bias_correction_directory_code}', self.bias_correction_directory_code_map[parameter])
+                data_file = data_file.replace('{parameter_file_code}', self.parameter_file_code_map[parameter])
+                data_file = data_file.replace('{month_code}', self.month_codes[month_index])
+                data_file = data_file.replace('{bias_correction_file_code}', bias_correction_file_code)
+                data_file = path.join(self.bias_correction_directory['path'], data_file)
+                if path.exists(data_file) :
+                    data_grids.append(np.genfromtxt(data_file))
+                else :
+                    #print 'TODO: handle missing climate data:', path.join(self.splitPath(split_path['directory'])['name'], split_path['name'])
+                    exception_message = 'Could not find ' + parameter.replace('_', ' ').title() + ' bias correction data for ' + self.month_names[month_index] + '. Expected bias correction data file: \n' + data_file
+                    raise Exception(exception_message)
+            if not self.cached_bias_correction_data_grids.has_key(parameter) :
+                self.cached_bias_correction_data_grids[parameter] = {}
+            if type(self.bias_correction_file_code_map[parameter]) == list :
+                self.cached_bias_correction_data_grids[parameter][month_index] = np.array(data_grids)
+                return data_grids
+            else :
+                self.cached_bias_correction_data_grids[parameter][month_index] = data_grids[0]
+                return data_grids[0]
         else :
             raise Exception('The bias correction data location for ' + parameter.replace('_', ' ').title() + ' has not been defined yet')
 
@@ -1093,7 +1123,8 @@ class PaleoclimateToolDataFileHelper :
         return from_year_str + '-' + until_year_str
 
     # Method generates a NetCDF file for a climate data parameter for the specified interval 
-    def generateNetCdfClimateData(self, parameter, from_year_ad, until_year_ad, min_year_ad=(1950-22000), max_year_ad=1989, zlib=True, decimals=None) :
+    def generateNetCdfClimateData(self, parameter, from_year_ad, until_year_ad, min_year_ad=(1950-22000),
+                                  max_year_ad=1989, zlib=True, decimals=None, correction_factor=1) :
 
         # Construct NetCDF file path
         data_interval_str = self.convertAdIntervalToDataLabel(from_year_ad, until_year_ad)
@@ -1111,7 +1142,7 @@ class PaleoclimateToolDataFileHelper :
         if decimals :
             data_decimals = decimals
         else :
-            data_decimals = len(first_line.split('.')[1].split(' '))
+            data_decimals = len(first_line.split('.')[1].split(' ')) # not working for Relative Humidity data: set decimals=6
 
         # Construct NetCDF dataset file
         rootgrp = Dataset(output_file_path, 'w')
@@ -1185,7 +1216,10 @@ class PaleoclimateToolDataFileHelper :
                 data.units = self.parameter_unit_string[parameter]
                 data.long_name = parameter.replace('_',' ').title()
                 data.standard_name = parameter
-                data[:,:,:] = np.array(year_grids)
+                if correction_factor != 1 :
+                    data[:,:,:] = np.array(year_grids)*correction_factor
+                else :
+                    data[:,:,:] = np.array(year_grids)
 
                 if year_ad % 100 == 0 : ### 
                     print year_str, strftime("%Y-%m-%d %H:%M", localtime())
