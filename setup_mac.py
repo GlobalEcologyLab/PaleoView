@@ -11,19 +11,19 @@ from glob import glob
 import matplotlib
 import sys
 
-# python setup.py py2app
+# python setup_mac.py py2app
 
-APP = ['paleo_view_v0_2.py']
-DATA_FILES= [(u'Map Data', glob(u'/Users/seanhaythorne/Dropbox/GEG-Mac/PaleoView/v0.2/Map Data/*'))]
-DATA_FILES.append((u'Bias Corrections', glob(u'/Users/seanhaythorne/Dropbox/GEG-Mac/PaleoView/v0.2/Bias Corrections/*')))
-DATA_FILES.append((u'.', glob(u'/Users/seanhaythorne/Dropbox/GEG-Mac/PaleoView/v0.2/paleo_view_config.txt')))
+APP = ['paleo_view_v0_5.py']
+DATA_FILES= [(u'Map Data', glob(u'/Users/seanhaythorne/Dropbox/GlobalEcology/PaleoView/code/Map Data/*'))]
+DATA_FILES.append((u'Bias Corrections', glob(u'//Users/seanhaythorne/Dropbox/GlobalEcology/PaleoView/code/Bias Corrections/*')))
+DATA_FILES.append((u'.', glob(u'/Users/seanhaythorne/Dropbox/GlobalEcology/PaleoView/code/paleo_view_config.txt')))
 DATA_FILES.append((u'mpl-data/basemap-data', glob(u'/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/site-packages/mpl_toolkits/basemap/data/*')))
 DATA_FILES.append((u'docx-data/templates', glob(u'/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/site-packages/docx/templates/*')))
 OPTIONS = {'argv_emulation': True}
 
 setup(
     app=APP,
-    name="PaleoView v0.2",
+    name="PaleoView v0.5",
     data_files=DATA_FILES,
     options={'py2app': OPTIONS},
 #    py_modules=[u'lib/PaleoclimateToolDataFileHelper'],

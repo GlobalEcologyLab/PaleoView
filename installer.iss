@@ -5,16 +5,16 @@
 ; NOTE: The value of AppId uniquely identifies this application.
 ; Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{3155F085-06FC-4B5C-B397-14016F70EF92}
+AppId={{A1201683-24C6-4A86-AFE1-DDD7A1CB558D}
 AppName=PaleoView
-AppVersion=0.4
-AppVerName=PaleoView v0.4
+AppVersion=0.5
+AppVerName=PaleoView v0.5
 AppPublisher=Global Ecology Lab
 AppPublisherURL=http://www.example.com/
 AppSupportURL=http://www.example.com/
 AppUpdatesURL=http://www.example.com/
-DefaultDirName={pf}\PaleoView v0.4
-DefaultGroupName=PaleoView v0.4
+DefaultDirName={pf}\PaleoView v0.5
+DefaultGroupName=PaleoView v0.5
 OutputBaseFilename=setup
 Compression=lzma
 SolidCompression=yes
@@ -34,10 +34,10 @@ Source: "Bias Corrections/*"; DestDir: "{app}/Bias Corrections"; Flags: recurses
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files vcredist_x86.exe
 
 [Icons]
-Name: "{group}\PaleoView v0.4"; Filename: "{app}\paleo_view_v0_4.exe"
-Name: "{commondesktop}\PaleoView v0.4"; Filename: "{app}\paleo_view_v0_4.exe"; Tasks: desktopicon
+Name: "{group}\PaleoView v0.5"; Filename: "{app}\paleo_view_v0_5.exe"
+Name: "{commondesktop}\PaleoView v0.5"; Filename: "{app}\paleo_view_v0_5.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{tmp}\vcredist_x86.exe"; Parameters: "/qu"; StatusMsg: "Installing Microsoft Visual C++ 2008 Redistributable Package..."
 Filename: "{tmp}\vcredist_x86.exe"; Parameters: ""; StatusMsg: "Installing Microsoft Visual C++ 2008 Redistributable Package..."
-Filename: "{app}\paleo_view_v0_4.exe"; Description: "{cm:LaunchProgram,PaleoView}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\paleo_view_v0_5.exe"; Description: "{cm:LaunchProgram,PaleoView}"; Flags: nowait postinstall skipifsilent

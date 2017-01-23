@@ -33,7 +33,7 @@ from matplotlib.ticker import MaxNLocator
 from matplotlib import rcParams
 
 # Mac version?
-MAC_VERSION = False
+MAC_VERSION = True
 
 # Tool library modules
 from PaleoclimateToolDataFileHelper import PaleoclimateToolDataFileHelper
@@ -465,7 +465,7 @@ class ApplicationGUI(tk.Frame) :
         row = 0
         tk.Label(self.data_type_frame, text='Data:').grid(row=row, column=0, sticky=tk.NW+tk.SW, padx=0, pady=5)
         self.data_type_menu.grid(row=row, column=1, sticky=tk.W+tk.E, padx=0, pady=5)
-        self.data_action_menu.grid(row=row, column=2, columnspan=2, sticky=tk.W+tk.E, padx=5, pady=5)
+        self.data_action_menu.grid(row=row, column=2, columnspan=3, sticky=tk.W+tk.E, padx=5, pady=5)
 
     # GUI for Step 2: Parameter Selection
     def createParameterSelectionFrame(self) :
@@ -608,18 +608,18 @@ class ApplicationGUI(tk.Frame) :
         tk.Label(self.parameter_selection_frame, text='Parameter:').grid(row=row, column=0, sticky=tk.NW+tk.SW, padx=0, pady=5)
         self.parameter_group_menu.grid(row=row, column=1, sticky=tk.W+tk.E, padx=0, pady=5)
         for group in self.parameter_via_group_codes :
-            self.parameter_via_group_menu[group].grid(row=row, column=2, columnspan=2, sticky=tk.W+tk.E, padx=5, pady=5)
+            self.parameter_via_group_menu[group].grid(row=row, column=2, columnspan=3, sticky=tk.W+tk.E, padx=5, pady=5)
             self.parameter_via_group_menu[group].grid_remove()
         self.current_parameter_group_field = self.parameter_via_group_menu[self.parameter_group_codes[0]]
         self.current_parameter_group_field.grid()
         row = 2
         tk.Label(self.time_unit_frame, text='Time unit:').grid(row=row, column=0, sticky=tk.NW+tk.SW, padx=0, pady=5)
         self.time_unit_menu.grid(row=row, column=1, sticky=tk.W+tk.E, padx=0, pady=5)
-        self.time_unit_seasons_menu.grid(row=row, column=2, columnspan=2, sticky=tk.W+tk.E, padx=5, pady=5)
+        self.time_unit_seasons_menu.grid(row=row, column=2, columnspan=3, sticky=tk.W+tk.E, padx=5, pady=5)
         self.time_unit_seasons_menu.grid_remove()
-        self.time_unit_other_label.grid(row=row, column=2, columnspan=2, sticky=tk.NW+tk.SW, padx=5, pady=5)
+        self.time_unit_other_label.grid(row=row, column=2, columnspan=3, sticky=tk.NW+tk.SW, padx=5, pady=5)
         self.time_unit_other_label.grid_remove()
-        self.time_unit_months_menu.grid(row=row, column=2, columnspan=2, sticky=tk.W+tk.E, padx=5, pady=5)
+        self.time_unit_months_menu.grid(row=row, column=2, columnspan=3, sticky=tk.W+tk.E, padx=5, pady=5)
         self.current_time_unit_field = self.time_unit_months_menu
 
         # Potentially restrict parameters and time units
@@ -801,7 +801,7 @@ class ApplicationGUI(tk.Frame) :
         self.interval_step_entry = tk.Spinbox(interval_step_frame, textvariable=self.interval_step_text, values=tuple(map(str, self.current_interval_step_values)), width=6, justify=tk.CENTER)
         self.interval_step_entry.config(validate='all', validatecommand=(validate_interval_step, '%P', '%V'))
         self.interval_step_entry.config(command=(interval_step_spinbox_arrow_press))
-        self.current_interval_steps = 3
+        self.current_interval_steps = 4
 
         self.interval_size_range = { 'min' : 10, 'max' : 100 }
         self.interval_size_values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
@@ -823,6 +823,7 @@ class ApplicationGUI(tk.Frame) :
         self.interval_step_entry.grid(row=0, column=0, sticky=tk.NW+tk.SW, padx=0, pady=0)
         tk.Label(interval_step_frame, text='years').grid(row=0, column=1, sticky=tk.NW+tk.SW, padx=5)#, pady=4)
         interval_step_frame.grid(row=row, column=3, sticky=tk.NW+tk.SW, padx=0, pady=5)
+        tk.Button(self.period_interval_frame, text='?', command=self.periodAndIntervalHelp).grid(row=row, rowspan=2, column=4, sticky=tk.W, padx=5) # Help button
         row = 5
         tk.Label(self.period_interval_frame, text='Period until:').grid(row=row, column=0, sticky=tk.NW+tk.SW, padx=0, pady=0)
         self.period_entry['until'].grid(row=0, column=0, sticky=tk.NW+tk.SW, padx=0, pady=0)
@@ -834,11 +835,12 @@ class ApplicationGUI(tk.Frame) :
         tk.Label(interval_size_frame, text='years').grid(row=0, column=1, sticky=tk.NW+tk.SW, padx=5)#, pady=4)
         interval_size_frame.grid(row=row, column=3, sticky=tk.NW+tk.SW, padx=0, pady=5)
         row = 8
-        tk.Label(self.period_interval_frame, textvariable=self.current_interval_steps_text).grid(row=row, column=0, columnspan=4, sticky=tk.NW+tk.SW, padx=0, pady=5)
+        tk.Label(self.period_interval_frame, textvariable=self.current_interval_steps_text).grid(row=row, column=0, columnspan=5, sticky=tk.NW+tk.SW, padx=0, pady=5)
         self.period_interval_frame.columnconfigure(0, weight=1)
         self.period_interval_frame.columnconfigure(1, weight=1000)
         self.period_interval_frame.columnconfigure(2, weight=1)
         self.period_interval_frame.columnconfigure(3, weight=1000)
+        self.period_interval_frame.columnconfigure(4, weight=1)
 
     # Initilisation for Step 4: Set initial Period Interval Values
     def setInitialPeriodIntervalValues(self) :
@@ -927,6 +929,7 @@ class ApplicationGUI(tk.Frame) :
         self.delta_user_defined_reference_frame.grid(row=0, column=1, sticky=tk.NW+tk.SW, padx=0, pady=0)
         self.delta_user_defined_reference_frame.grid_remove()
         delta_reference_frame.grid(row=row, column=2, columnspan=2, sticky=tk.NW+tk.SW, padx=5, pady=5)
+        tk.Button(self.delta_frame, text='?', command=self.deltaAndBiasCorrectionHelp).grid(row=row, rowspan=2, column=4, sticky=tk.W, padx=5) # Help button
 
     # GUI for Step 6: Bias Correction
     def createBiasCorrectionFrame(self) :
@@ -1990,23 +1993,25 @@ class ApplicationGUI(tk.Frame) :
                         self.climate_data_download_status_bar['maximum'] = 1
                         self.climate_data_download_status_bar['value'] = 0
                         self.climate_data_download_status_bar.grid()
-                        self.update_idletasks()
+                        self.update() # .update_idletasks()
                         try :
                             self.data_file_helper.downloadClimateDataInterval(data_parameter, download_interval, delimiter='')
                         except Exception, e :
-                            showerror('Data download error', str(e), parent=self.download_climate_data_window)
-                            print >> sys.stderr, 'Data download error:', e
-                        self.climate_data_download_status_text.set('')
-                        self.climate_data_download_status_bar.grid_remove()
-                        self.climate_data_download_button.configure(state=tk.NORMAL)
-                        self.update_idletasks()
+                            if hasattr(self, 'download_climate_data_window') and self.download_climate_data_window.children :
+                                showerror('Data download error', str(e), parent=self.download_climate_data_window)
+                                print >> sys.stderr, 'Data download error:', e
+                        if self.download_climate_data_window.children :
+                            self.climate_data_download_status_text.set('')
+                            self.climate_data_download_status_bar.grid_remove()
+                            self.climate_data_download_button.configure(state=tk.NORMAL)
+                            self.update() # .update_idletasks()
         else :
             if not self.data_file_helper.getClimateDataUrl() :
                 showinfo('Download from URL not defined', 'Please enter the URL location of the climate data download(s).', parent=self.download_climate_data_window)
             elif not self.data_file_helper.getClimateDataDirectoryPath() :
                 showinfo('Download to Directory not defined', 'Please select the directory destination for the climate data download(s).', parent=self.download_climate_data_window)
-            elif not (data_parameters_selected or download_intervals_selected) :
-                showinfo('Download Selection not defined', 'Please select the climate data to download.', parent=self.download_climate_data_window)
+            elif not (data_parameters_selected and download_intervals_selected) :
+                showinfo('Download Selection not fully defined', 'Please select the climate data parameters and intervals to download.', parent=self.download_climate_data_window)
 
     ## Step 1: Data Type Methods ################################################################################################################################################
 
@@ -3910,6 +3915,18 @@ class ApplicationGUI(tk.Frame) :
             self.interval_size_text.set(str(current_value))
             self.current_interval_size_values = size_values
 
+    # Step 4 Method: Period and Interval Help
+    def periodAndIntervalHelp(self) :
+        help_text = ('The Period and Interval fields set the time span and averaging intervals for the data viewed or generated.\n\n' +
+                     'The Period from and until fields set the midpoint years of the first and last averaging intervals respectively.\n\n' +
+                     'The Interval step field sets the time between the midpoints of the averaging intervals, and thus determines how many averaging intervals are generated.\n\n' +
+                     'The Interval size field sets the time period over which the climate data are averaged (usually 20 or 30 years, with a minimum of 10 years).\n\n' +
+                     'For example (as per initial defaults), for the period from 1750AD until 1950AD, with an interval step of 50 years, and an interval size of 30 years: ' +
+                     'Paleoview would generate data for 5 intervals averaged across 30 years centered on 1750, 1800, 1850, 1900 and 1950. ' +
+                     'One of the averaged intervals may then be utilized for calculating relative change, thus 4 interval averages would be presented/generated.')
+
+        showinfo('Period and Interval fields', help_text)
+
     ## Step 5: Delta Methods ##############################################################################################################################################
 
     # Step 5 Method: Delta Selection: the user selects/deselects delta
@@ -4294,6 +4311,14 @@ class ApplicationGUI(tk.Frame) :
         # Match period until with from
         self.matchPeriodUntilWithFrom()
 
+    # Step 5 & 6 Method: Delta and Bias Correction Help
+    def deltaAndBiasCorrectionHelp(self) :
+        help_text = ('The relative change tick-box facilitates anomalies, rather than optionally bias-corrected absolute values, to be generated.\n\n'
+                     'When relative change is ticked, the selection to the right allows the user to select or define the the period from which to calculate the anomaly.\n\n'
+                     'When relative change is unticked, absolute values are generated with optionally applied model bias correction (via second tick-box). '
+                     'The correction factor adjusts values to account for the difference between observed and modelled data over a near-present-day reference period.')
+        showinfo('Relative Change or Optionally Bias-corrected Absolute Values', help_text)
+
     ## Step 6: Bias Correction Methods ##############################################################################################################################################
 
     # Step 6 Method: Bias Correction Selection: the user selects/deselects Bias Correction
@@ -4336,7 +4361,7 @@ class ApplicationGUI(tk.Frame) :
 
         # Disable view button, add generation status bar, and change label text
         self.view_button.configure(state=tk.DISABLED)
-        self.update_idletasks()
+        self.update() # .update_idletasks()
         self.generation_status_bar['value'] = 0
         self.generation_status_bar['maximum'] = (self.current_interval_steps + 1) * self.current_valid_interval_size_value * len(self.selected_time_unit_month_indices)
         if generate_grids :
@@ -4348,11 +4373,11 @@ class ApplicationGUI(tk.Frame) :
         else :
             self.generation_status_bar['maximum'] += self.generation_status_times['view']['series'] * (1 + int(self.time_unit_is_all_months)*11)
         self.generation_status_bar.grid()
-        self.update_idletasks()
+        self.update() # .update_idletasks()
         self.view_label_text.set('')
-        self.update_idletasks()
+        self.update() # .update_idletasks()
         self.view_label_text.set(self.generation_status_options['view']['data'])
-        self.update_idletasks()
+        self.update() # .update_idletasks()
             
         # Resolve selected parameter/group codes
         parameter_group_code = self.parameter_group_selection_map[self.parameter_group_text.get()]
@@ -4384,11 +4409,11 @@ class ApplicationGUI(tk.Frame) :
             delta_ref_period_ad = None
 
         # Change label text
-        self.update_idletasks()
+        self.update() # .update_idletasks()
         self.view_label_text.set('')
-        self.update_idletasks()
+        self.update() # .update_idletasks()
         self.view_label_text.set(self.generation_status_options['view']['plot'])
-        self.update_idletasks()
+        self.update() # .update_idletasks()
 
         # Gather parameter data from the climate data files
         data_extraction_ok = False
@@ -4434,7 +4459,7 @@ class ApplicationGUI(tk.Frame) :
                     if self.use_contoured_grid_maps :
                         contoured_region_masks.append(self.transformGridMaskForContours(region_masks[i]))
                         self.generation_status_bar['value'] += self.generation_status_times['view']['contours']
-                        self.update_idletasks()
+                        self.update() # .update_idletasks()
                 if self.region_bounding_box[self.current_region]['centre'] == 180 or self.userDefinedGridMaskRequiresShift() :
                     parameter_data = self.shiftDataGrids180Degrees(parameter_data)
                 if self.use_contoured_grid_maps :
@@ -4583,7 +4608,7 @@ class ApplicationGUI(tk.Frame) :
                 contour_data_grid[r,cols] = contour_data_grid[r,0]
             contour_data_grids.append(contour_data_grid)
             self.generation_status_bar['value'] += self.generation_status_times['view']['contours']
-            self.update_idletasks()
+            self.update() # .update_idletasks()
         return contour_data_grids
 
     # Step 7 Method: Open Generation Status Window
@@ -5058,7 +5083,7 @@ class ApplicationGUI(tk.Frame) :
             self.generation_status_bar['value'] += self.generation_status_times['view']['map']
             if self.region_is_time_dependent[self.current_region] :
                 self.generation_status_bar['value'] += self.generation_status_times['view']['time-dependent']
-            self.update_idletasks()
+            self.update() # .update_idletasks()
         
         # Adjust spacing and make an axis for the colorbar on the bottom
         self.view_climate_data_figure.subplots_adjust(left=(margin/width), right=(1.0-margin/width),
@@ -5515,7 +5540,7 @@ class ApplicationGUI(tk.Frame) :
 
             # Update status bar
             self.generation_status_bar['value'] += self.generation_status_times['view']['series']
-            self.update_idletasks()
+            self.update() # .update_idletasks()
 
         # Adjust spacing
         if self.time_unit_is_all_months :
@@ -5689,7 +5714,7 @@ class ApplicationGUI(tk.Frame) :
 
         # Disable generate button, add generation status bar, and change label text
         self.generate_button.configure(state=tk.DISABLED)
-        self.update_idletasks()
+        self.update() # .update_idletasks()
         self.generation_status_bar['value'] = 0
         self.generation_status_bar['maximum'] = (self.current_interval_steps + 1) * self.current_valid_interval_size_value * len(self.selected_time_unit_month_indices)
         if generate_grids :
@@ -5699,11 +5724,11 @@ class ApplicationGUI(tk.Frame) :
             self.generation_status_bar['maximum'] += self.generation_status_times['files']['series']
             generation_status = self.generation_status_options['files']['series']['data']
         self.generation_status_bar.grid()
-        self.update_idletasks()
+        self.update() # .update_idletasks()
         self.generate_label_text.set(' '*50)
-        self.update_idletasks()
+        self.update() # .update_idletasks()
         self.generate_label_text.set(generation_status)
-        self.update_idletasks()
+        self.update() # .update_idletasks()
 
         # Resolve generation data file type
         data_file_type = self.data_file_type_keys[self.data_file_type_selection.index(self.data_file_type_text.get())]
@@ -5968,11 +5993,11 @@ class ApplicationGUI(tk.Frame) :
             self.data_file_helper.resetTimestampedFileGenerationDirectory()
 
         # Remove generation status bar, reinstate label text and re-enable button
-        self.update_idletasks()
+        self.update() # .update_idletasks()
         self.generation_status_bar.grid_remove() # only when exception
-        self.update_idletasks()
+        self.update() # .update_idletasks()
         self.generate_label_text.set('')
-        self.update_idletasks()
+        self.update() # .update_idletasks()
         self.generate_label_text.set(generation_status)
         self.file_generation_completed = True
         self.generate_button.configure(state=tk.NORMAL)
@@ -6353,7 +6378,7 @@ class ApplicationGUI(tk.Frame) :
 
 ## Main program
 
-application_name = 'PaleoView v0.4'
+application_name = 'PaleoView v0.5'
 
 # Set user application data directory
 if MAC_VERSION :

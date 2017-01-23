@@ -508,7 +508,7 @@ class PaleoclimateToolDataFileHelper :
                                                                                    correct_bias=correct_bias))
                     if self.application_gui != None :
                         self.application_gui.generation_status_bar['value'] += interval_size
-                        self.application_gui.update_idletasks()
+                        self.application_gui.update() # .update_idletasks()
                         #print 'generateParameterData, all_months:', all_months, self.application_gui.generation_status_bar['value'], time()
                 parameter_data.append(parameter_data_month)
         else :
@@ -521,7 +521,7 @@ class PaleoclimateToolDataFileHelper :
                                                                          correct_bias=correct_bias))
                 if self.application_gui != None :
                     self.application_gui.generation_status_bar['value'] += interval_size * len(month_indices)
-                    self.application_gui.update_idletasks()
+                    self.application_gui.update() # .update_idletasks()
                     #print 'generateParameterData, all_months:', all_months, self.application_gui.generation_status_bar['value'], time()
 
         # Calculate delta values when required
@@ -970,7 +970,7 @@ class PaleoclimateToolDataFileHelper :
         elif file_type == 'ascii' :
             output_file_path = path.join(self.file_generation_directory['path'], ('grid_data_'+year_label+'.txt'))
             f = open(output_file_path, 'w')
-            f.write(data_frame.to_string(header=False, index=False, nanRep='-9999', na_rep='-9999', float_format=(lambda f: '%.3f'%f)).replace('  nan','-9999'))
+            f.write(data_frame.to_string(header=False, index=False, na_rep='-9999', float_format=(lambda f: '%.3f'%f)).replace('  nan','-9999'))
             f.close()
         elif file_type == 'esri_ascii' :
             header = 'ncols 144\n' + 'nrows 72\n' + 'xllcorner -180\n' + 'yllcorner -90\n' + 'cellsize 2.5\n' + 'nodata_value -9999\n'
@@ -1286,12 +1286,12 @@ class PaleoclimateToolDataFileHelper :
 
         if self.application_gui != None :
 
+            self.application_gui.update() # .update_idletasks()
+
             # Set status maximum if not already set
             if self.application_gui.climate_data_download_status_bar['maximum'] == 1 :
-                self.application_gui.climate_data_download_status_bar['maximum'] = total_size/block_size/1000
-                self.application_gui.update_idletasks()
+                self.application_gui.climate_data_download_status_bar['maximum'] = total_size/block_size/100
 
-            # Set status value every 1000 blocks
-            if not count % 1000 :
+            # Set status value every 100 blocks
+            if not count % 100 :
                 self.application_gui.climate_data_download_status_bar['value'] += 1
-                self.application_gui.update_idletasks()
