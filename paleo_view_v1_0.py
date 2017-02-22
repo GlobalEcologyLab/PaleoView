@@ -4,7 +4,6 @@ import string
 import sys
 import Tkinter as tk
 import ttk
-from Crypto.Cipher import AES
 from os import chdir, environ, getcwd, listdir, mkdir, path
 from shutil import copyfile
 from StringIO import StringIO
@@ -16,6 +15,7 @@ import warnings
 warnings.simplefilter('ignore')
 
 # Python extension modules (requires extension installation)
+from Crypto.Cipher import AES
 import numpy as np
 import pandas as pd
 
@@ -33,7 +33,7 @@ from matplotlib.ticker import MaxNLocator
 from matplotlib import rcParams
 
 # Mac version?
-MAC_VERSION = True
+MAC_VERSION = False
 
 # Tool library modules
 from PaleoclimateToolDataFileHelper import PaleoclimateToolDataFileHelper
@@ -740,12 +740,12 @@ class ApplicationGUI(tk.Frame) :
 
         # Period and interval lists
         self.period_postfix_keys = ['BP', 'AD']
-        self.period_postfix_selection = ['Before Present: <=1950', 'Anno Domini: 1951-1989']
+        self.period_postfix_selection = ['Before Present: <=1950', 'Anno Domini: 1-1989']
 
         # Parameter text variables
         self.period_text = { 'from' : tk.StringVar(), 'until' : tk.StringVar() }
         self.period_postfix_text = { 'from' : tk.StringVar(), 'until' : tk.StringVar() }
-        self.period_postfix_text['from'].set(self.period_postfix_keys[1])
+        self.period_postfix_text['from'].set(self.period_postfix_keys[0])
         self.period_postfix_text['until'].set(self.period_postfix_keys[1])
         self.interval_step_text = tk.StringVar()
         self.interval_size_text = tk.StringVar()
@@ -768,11 +768,11 @@ class ApplicationGUI(tk.Frame) :
         interval_size_frame = tk.Frame(self.period_interval_frame)
 
         self.period_ranges = { 'BP' : { 'min' : 0, 'max' : 22000, 'max-entry' : 21000 }, 'AD' : { 'min' : 1, 'max' : 1989 } }
-        self.current_period_values = { 'from' : range(0, 1901, 50), 'until' : range(1800, 1950, 50) }
+        self.current_period_values = { 'from' : range(21000, -1, -20), 'until' : range(1820, 1961, 20) }
         self.period_bp_range_for_all_months = 1000 # used to avoid memory problems caused by 22000 spinbox values
-        self.previous_period_text_value = { 'from' : '1750', 'until' : '1950' }
+        self.previous_period_text_value = { 'from' : '150', 'until' : '1960' }
         self.previous_period_changed_via = { 'from' : 'forced', 'until' : 'forced' }
-        self.current_valid_period_value = { 'from' : 1750, 'until' : 1950 }
+        self.current_valid_period_value = { 'from' : 150, 'until' : 1960 }
         self.period_entry = {}
         self.period_entry['from'] = tk.Spinbox(period_from_frame, textvariable=self.period_text['from'], values=tuple(map(str, self.current_period_values['from'])), width=6, justify=tk.CENTER)
         self.period_entry['from'].config(validate='all', validatecommand=(validate_period, '%P', '%V', 'from'))
@@ -795,13 +795,13 @@ class ApplicationGUI(tk.Frame) :
 
         self.interval_step_range = { 'min' : 10, 'max' : 10000 }
         self.interval_step_values = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
-        self.current_interval_step_values = [10, 20, 50, 100, 200]
-        self.current_valid_interval_step_value = 50
-        self.previous_interval_step_text_value = '50'
+        self.current_interval_step_values = [10, 20, 50, 100]
+        self.current_valid_interval_step_value = 20
+        self.previous_interval_step_text_value = '20'
         self.interval_step_entry = tk.Spinbox(interval_step_frame, textvariable=self.interval_step_text, values=tuple(map(str, self.current_interval_step_values)), width=6, justify=tk.CENTER)
         self.interval_step_entry.config(validate='all', validatecommand=(validate_interval_step, '%P', '%V'))
         self.interval_step_entry.config(command=(interval_step_spinbox_arrow_press))
-        self.current_interval_steps = 4
+        self.current_interval_steps = 8
 
         self.interval_size_range = { 'min' : 10, 'max' : 100 }
         self.interval_size_values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
@@ -858,10 +858,10 @@ class ApplicationGUI(tk.Frame) :
 
         # Delta reference period lists
         self.delta_reference_period_codes = ['previous', 'next', 'present-day', 'oldest-record', 'user-defined']
-        self.delta_reference_value = { 'previous' : { 'year' : 1750, 'postfix' : 'AD' }, 'next' : { 'year' : 1950, 'postfix' : 'AD' },
+        self.delta_reference_value = { 'previous' : { 'year' : 150, 'postfix' : 'BP' }, 'next' : { 'year' : 1960, 'postfix' : 'AD' },
                                        'present-day' : { 'year' : 1975, 'postfix' : 'AD' }, 'oldest-record' : { 'year' : 21000, 'postfix' : 'BP' },
-                                       'user-defined' : { 'year' : 1700, 'postfix' : 'AD' } }
-        self.delta_reference_interval_pre_text = { 'previous' : '1750 AD', 'next' : '1950 AD', 'present-day' : '1975 AD', 'oldest-record' : '21000 BP', 'user-defined' : '' }
+                                       'user-defined' : { 'year' : 170, 'postfix' : 'BP' } }
+        self.delta_reference_interval_pre_text = { 'previous' : '150 BP', 'next' : '1960 AD', 'present-day' : '1975 AD', 'oldest-record' : '21000 BP', 'user-defined' : '' }
         self.delta_reference_interval_post_text = { 'previous' : ' (from)', 'next' : ' (until)', 'present-day' : ' (present day)', 'oldest-record' : ' (oldest record)', 'user-defined' : 'User-defined' }
         self.utilise_delta_pre_text = { 'view' : 'View', 'files' : 'Generate' }
         self.utilise_delta_post_text = ' change relative to:'
@@ -6378,7 +6378,7 @@ class ApplicationGUI(tk.Frame) :
 
 ## Main program
 
-application_name = 'PaleoView v0.5'
+application_name = 'PaleoView v1.0'
 
 # Set user application data directory
 if MAC_VERSION :

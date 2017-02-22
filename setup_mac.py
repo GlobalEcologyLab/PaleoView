@@ -13,7 +13,7 @@ import sys
 
 # python setup_mac.py py2app
 
-APP = ['paleo_view_v0_5.py']
+APP = ['paleo_view_v1_0.py']
 DATA_FILES= [(u'Map Data', glob(u'/Users/seanhaythorne/Dropbox/GlobalEcology/PaleoView/code/Map Data/*'))]
 DATA_FILES.append((u'Bias Corrections', glob(u'//Users/seanhaythorne/Dropbox/GlobalEcology/PaleoView/code/Bias Corrections/*')))
 DATA_FILES.append((u'.', glob(u'/Users/seanhaythorne/Dropbox/GlobalEcology/PaleoView/code/paleo_view_config.txt')))
@@ -23,7 +23,7 @@ OPTIONS = {'argv_emulation': True}
 
 setup(
     app=APP,
-    name="PaleoView v0.5",
+    name="PaleoView v1.0",
     data_files=DATA_FILES,
     options={'py2app': OPTIONS},
 #    py_modules=[u'lib/PaleoclimateToolDataFileHelper'],
