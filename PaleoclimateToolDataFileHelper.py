@@ -434,23 +434,28 @@ class PaleoclimateToolDataFileHelper :
             return True
 
     # Method loads region mask
-    def loadRegionMask(self, region_code, time_dependent=False) :
+    def loadRegionMask(self, region_code, time_dependent=False, year=150) :
         if time_dependent :
-            region_mask_dict = {}
-            for year in np.arange(0, 21001, 100) :
-                mask_file = path.join(self.region_mask_directory['path'], region_code, (region_code.split('-')[0] + '-' + str(year)+ 'BP.msk'))
-                region_mask_dict[year] = np.genfromtxt(mask_file, delimiter=1)
-            return region_mask_dict
+            #region_mask_dict = {}
+            #for year in np.arange(5, 20996, 10) :
+            mask_file = path.join(self.region_mask_directory['path'], 'land-0-21KBP', (str(year)+ 'BP.Mask.txt'))
+            if region_code == 'land-0-21KBP' :
+                return (np.genfromtxt(mask_file, delimiter=1) > 0.5)*1
+            elif region_code == 'ocean-0-21KBP' :
+                return (np.genfromtxt(mask_file, delimiter=1) < 0.5)*1
+            #return region_mask_dict
         else :
             mask_file = path.join(self.region_mask_directory['path'], (region_code + '.msk'))
             return np.genfromtxt(mask_file, delimiter=1)
 
     # Method finds nearest time dependent region mask year
     def nearestTimeDependentRegionMaskYear(self, year) :
-        if year > 21000 :
-            return 21000
+        if year > 20995 :
+            return 20995
+        elif year < 5 :
+            return 5
         else :
-            return int(round((year >= 0)*year/100.0,0)*100)
+            return int(round((year-5)/10.0,0)*10)+5
         
     # Method generates requested parameter data
     def generateParameterData(self,
