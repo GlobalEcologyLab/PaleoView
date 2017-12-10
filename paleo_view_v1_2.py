@@ -33,13 +33,13 @@ from matplotlib.ticker import MaxNLocator
 from matplotlib import rcParams
 
 # Mac version?
-MAC_VERSION = False
+MAC_VERSION = True # Make True for releases to enable Linux compatibility
 
 # Tool library modules
 from PaleoclimateToolDataFileHelper import PaleoclimateToolDataFileHelper
 
 # TEST FLAG: Write stdout and stderr to console (not log files)
-DEBUG = False
+DEBUG = True
 
 # Code for encrypting/decrypting the proxy password when saved/retrieved from the config file
 BLOCK_SIZE = 32
@@ -6401,7 +6401,7 @@ class ApplicationGUI(tk.Frame) :
 
 ## Main program
 
-application_name = 'PaleoView v1.1'
+application_name = 'PaleoView v1.2'
 
 # Set user application data directory
 if MAC_VERSION :

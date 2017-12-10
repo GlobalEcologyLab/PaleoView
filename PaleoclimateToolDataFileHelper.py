@@ -1,3 +1,7 @@
+# BUILD FLAG:   Set to True when creating executable packages to ensure dependency work-arounds
+#               Set to False for code releases to ensure Linux installation is easier to achieve
+EXECUTABLE_BUILD_INCLUSION = False
+
 # Python modules
 import re
 import string
@@ -11,7 +15,8 @@ from time import time, localtime, strftime
 # Python extension modules (requires extension installation)
 import numpy as np
 import pandas as pd
-import netCDF4_utils
+if EXECUTABLE_BUILD_INCLUSION :
+    import netCDF4_utils # difficult for Linux installation
 import netcdftime
 from netCDF4 import Dataset
 import docx
@@ -752,7 +757,7 @@ class PaleoclimateToolDataFileHelper :
                 data_grid = self.loadClimateDataGrid(parameter, year_ad-1, i)
             else : 
                 data_grid = self.loadClimateDataGrid(parameter, year_ad, i)
-            if data_grid != None :
+            if data_grid is not None : # TODO:CheckMacVersion: data_grid != None : Correction for Linux compatibility
                 data_grids.append(data_grid)
         climate_data_grids = np.array(data_grids)
 
