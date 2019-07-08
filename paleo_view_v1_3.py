@@ -17,6 +17,14 @@ warnings.simplefilter('ignore')
 # Python extension modules (requires extension installation)
 from Crypto.Cipher import AES
 import numpy as np
+# imports for py2exe build -
+import appdirs
+import packaging
+import packaging.version
+import packaging.specifiers
+import packaging.requirements
+import packaging.markers
+# ---
 import pandas as pd
 
 # Python extension Matplot and Basemap modules
@@ -33,13 +41,13 @@ from matplotlib.ticker import MaxNLocator
 from matplotlib import rcParams
 
 # Mac version?
-MAC_VERSION = True # Make True for releases to enable Linux compatibility
+MAC_VERSION = False # Make True for releases to enable Linux compatibility
 
 # Tool library modules
 from PaleoclimateToolDataFileHelper import PaleoclimateToolDataFileHelper
 
 # TEST FLAG: Write stdout and stderr to console (not log files)
-DEBUG = True
+DEBUG = False
 
 # Code for encrypting/decrypting the proxy password when saved/retrieved from the config file
 BLOCK_SIZE = 32
@@ -73,7 +81,7 @@ class ApplicationGUI(tk.Frame) :
 
         # Initialise config parameters
         self.climate_data_source = 'local' # local/url
-        self.climate_data_url = 'http://paleoview.ddns.net:60627/data/'
+        self.climate_data_url = 'https://storage.googleapis.com/paleoview-data/'
         self.climate_data_proxy_active = False
         self.climate_data_proxy_url = 'http://example.proxy.com:80/'
         self.climate_data_proxy_username = ''
@@ -6401,7 +6409,7 @@ class ApplicationGUI(tk.Frame) :
 
 ## Main program
 
-application_name = 'PaleoView v1.2'
+application_name = 'PaleoView v1.3'
 
 # Set user application data directory
 if MAC_VERSION :

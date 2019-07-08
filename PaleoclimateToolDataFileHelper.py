@@ -1,6 +1,6 @@
 # BUILD FLAG:   Set to True when creating executable packages to ensure dependency work-arounds
 #               Set to False for code releases to ensure Linux installation is easier to achieve
-EXECUTABLE_BUILD_INCLUSION = False
+EXECUTABLE_BUILD_INCLUSION = True
 
 # Python modules
 import re
@@ -241,7 +241,7 @@ class PaleoclimateToolDataFileHelper :
                 #print 'check 2'
                 return False         
         except Exception, e :
-            current_url_file = url.urlopen('http://homepage.cs.latrobe.edu.au/shaythorne/paleoview/current_url.txt')
+            current_url_file = url.urlopen('https://storage.googleapis.com/paleoview-data/current_url.txt')
             self.setClimateDataUrl(current_url_file.readline().rstrip())
             try :
                 current_first_url_file = url.urlopen((self.climate_data_url + 'current_url.txt'))
@@ -1169,17 +1169,37 @@ class PaleoclimateToolDataFileHelper :
         window = rootgrp.createVariable('window','i4',('single',))
         width = rootgrp.createVariable('width','i4',('single',))
         decimals = rootgrp.createVariable('decimals','i4',('single',))
-        months = rootgrp.createVariable('months','i4',('month',), zlib=zlib)
-        latitudes = rootgrp.createVariable('latitudes','f8',('lat',), zlib=zlib)
-        longitudes = rootgrp.createVariable('longitudes','f8',('lon',), zlib=zlib)
-        latitudes.units = 'degrees north'
-        longitudes.units = 'degrees east'
+##        months = rootgrp.createVariable('months','i4',('month',), zlib=zlib)
+##        latitudes = rootgrp.createVariable('latitudes','f8',('lat',), zlib=zlib)
+##        longitudes = rootgrp.createVariable('longitudes','f8',('lon',), zlib=zlib)
+##        latitudes.units = 'degrees north'
+##        longitudes.units = 'degrees east'
         window[:] = np.array(self.download_data_window)
         width[:] = np.array(data_width)
         decimals[:] = np.array(data_decimals)
-        months[:] = np.array(range(12)) + 1
-        latitudes[:] = np.arange(88.75,-88.751,-2.5)
-        longitudes[:] = np.arange(-178.75,178.751,2.5)
+##        months[:] = np.array(range(12)) + 1
+##        latitudes[:] = np.arange(88.75,-88.751,-2.5)
+##        longitudes[:] = np.arange(-178.75,178.751,2.5)
+
+        # Create coordinate variables NEW
+        month = rootgrp.createVariable('month','i4',('month',), zlib=zlib)
+        month.units = 'month'
+        month.axis = 'T'
+        month.long_name = 'month'
+        month.standard_name = 'month'
+        month[:] = np.array(range(12)) + 1
+        latitude = rootgrp.createVariable('lat','f8',('lat',), zlib=zlib)
+        latitude.units = 'degrees_north'
+        latitude.axis = 'Y'
+        latitude.long_name = 'latitude'
+        latitude.standard_name = 'latitude'
+        latitude[:] = np.arange(88.75,-88.751,-2.5)
+        longitude = rootgrp.createVariable('lon','f8',('lon',), zlib=zlib)
+        longitude.units = 'degrees_east'
+        longitude.axis = 'X'            
+        longitude.long_name = 'longitude'
+        longitude.standard_name = 'longitude'
+        longitude[:] = np.arange(-178.75,178.751,2.5)
 
         # Add overlap to allow for interval window
         from_year_ad = max((from_year_ad - self.download_data_window), min_year_ad)
@@ -1223,6 +1243,7 @@ class PaleoclimateToolDataFileHelper :
 
                 # Load grid data into subgroup variable using year label
                 data = subgroup.createVariable(year_str,'f8',('month','lat','lon',), zlib=zlib, least_significant_digit=(data_decimals+1)) # one more decimal than formatted
+                data.coordinates = 'month lat lon' # NEW
                 data.units = self.parameter_unit_string[parameter]
                 data.long_name = parameter.replace('_',' ').title()
                 data.standard_name = parameter
@@ -1259,8 +1280,8 @@ class PaleoclimateToolDataFileHelper :
         # Download NetCDF file
         local_netCdf_path = path.join(self.climate_data_directory['path'], netCdf_file)
         try :
-            check_connection = url.urlopen((self.climate_data_url + netCdf_file))
-            check_connection.close()
+            #check_connection = url.urlopen((self.climate_data_url + netCdf_file))
+            #check_connection.close()
             urllib.urlretrieve((self.climate_data_url + netCdf_file), local_netCdf_path, reporthook=self.netCdfDownloadProgress)
         except Exception, e :
             exception_message = 'Could not open ' + netCdf_file + '\nExpected climate data NetCDF file at: \n' + self.climate_data_url + '\n' + str(e)
