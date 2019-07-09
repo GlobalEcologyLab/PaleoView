@@ -1,5 +1,5 @@
 climate_data_source = local
-climate_data_url = http://203.83.208.84/paleodata/
+climate_data_url = https://storage.googleapis.com/paleoview-data/
 climate_data_directory = 
 climate_data_local_data_type = netcdf
 default_file_generation_directory = 
