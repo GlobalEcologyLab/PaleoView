@@ -241,8 +241,11 @@ class PaleoclimateToolDataFileHelper :
                 #print 'check 2'
                 return False         
         except Exception, e :
-            current_url_file = url.urlopen('https://storage.googleapis.com/paleoview-data/current_url.txt')
-            self.setClimateDataUrl(current_url_file.readline().rstrip())
+            try :
+                current_url_file = url.urlopen('https://storage.googleapis.com/paleoview-data/current_url.txt')
+                self.setClimateDataUrl(current_url_file.readline().rstrip())
+            except Exception, e :
+                return True # assume no internet connection or URL is unavailable
             try :
                 current_first_url_file = url.urlopen((self.climate_data_url + 'current_url.txt'))
                 current_first_url_file.close()
