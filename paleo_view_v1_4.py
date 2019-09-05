@@ -41,7 +41,7 @@ from matplotlib.ticker import MaxNLocator
 from matplotlib import rcParams
 
 # Mac version?
-MAC_VERSION = False # Make True for releases to enable Linux compatibility
+MAC_VERSION = True # Make True for releases to enable Linux compatibility
 
 # Tool library modules
 from PaleoclimateToolDataFileHelper import PaleoclimateToolDataFileHelper
@@ -56,6 +56,9 @@ PadPassword = lambda s: s + (BLOCK_SIZE - len(s) % BLOCK_SIZE) * PADDING
 EncodeAES = lambda c, s: base64.b64encode(c.encrypt(PadPassword(s)))
 DecodeAES = lambda c, e: c.decrypt(base64.b64decode(e)).rstrip(PADDING)
 PASSWORDKEY = '\xe7Z\xb2\xc9\x03\xb4\x8c\x04A\xfe\x97\xc3\xf9\xc7\xd2\x1c\xb9\x1eh\xd0\x91E/\xdb\xc9\x9f\xf0\xda\x8e\x06\xae\xd5' # set using os.urandom(BLOCK_SIZE)
+
+# Allow open interval step and size (set to False for releases)
+OPEN_INTERVALS = False
 
 ## Application GUI
 ## * Constructs tool GUI components
@@ -799,9 +802,12 @@ class ApplicationGUI(tk.Frame) :
         for i, selection in enumerate(self.period_postfix_keys) :
             self.period_postfix_menu['from']['menu'].entryconfigure(i, command=(select_period_postfix, 'from', selection))
             self.period_postfix_menu['until']['menu'].entryconfigure(i, command=(select_period_postfix, 'until', selection))
-        self.period_postfix_menu['until']['menu'].entryconfigure(0, state=tk.DISABLED)
+        #self.period_postfix_menu['until']['menu'].entryconfigure(0, state=tk.DISABLED) # use if initial from is AD
 
-        self.interval_step_range = { 'min' : 10, 'max' : 10000 }
+        if OPEN_INTERVALS :
+            self.interval_step_range = { 'min' : 1, 'max' : 10000 }
+        else :
+            self.interval_step_range = { 'min' : 10, 'max' : 10000 }
         self.interval_step_values = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
         self.current_interval_step_values = [10, 20, 50, 100]
         self.current_valid_interval_step_value = 20
@@ -811,7 +817,10 @@ class ApplicationGUI(tk.Frame) :
         self.interval_step_entry.config(command=(interval_step_spinbox_arrow_press))
         self.current_interval_steps = 8
 
-        self.interval_size_range = { 'min' : 10, 'max' : 100 }
+        if OPEN_INTERVALS :
+            self.interval_size_range = { 'min' : 1, 'max' : 10000 }
+        else :
+            self.interval_size_range = { 'min' : 10, 'max' : 100 }
         self.interval_size_values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
         self.current_interval_size_values = [10, 20, 30, 40, 50, 60, 70, 80]
         self.current_valid_interval_size_value = 30
@@ -5845,7 +5854,6 @@ class ApplicationGUI(tk.Frame) :
                                                                                  all_months=self.time_unit_is_all_months,
                                                                                  correct_bias=self.utilise_bias_correction.get())
                     self.parameter_data = parameter_data[0].copy()
-                    self.data_file_helper.clearNetCdfDataCache()
                 except Exception, e :
                     self.data_file_helper.clearNetCdfDataCache()
                     showerror('Data extraction error', str(e))
@@ -5892,6 +5900,9 @@ class ApplicationGUI(tk.Frame) :
             if generated_file_count :
                 self.updateToolGenerationLogEntry(grids_generated={ 'number' : generated_file_count, 'expected' : len(period_years_ad) })
                 self.updateToolGenerationLogs()
+
+            # Clear netCDF cache
+            self.data_file_helper.clearNetCdfDataCache()
 
         else : # Collect series data then generate file
 
@@ -6409,7 +6420,7 @@ class ApplicationGUI(tk.Frame) :
 
 ## Main program
 
-application_name = 'PaleoView v1.3'
+application_name = 'PaleoView v1.4'
 
 # Set user application data directory
 if MAC_VERSION :

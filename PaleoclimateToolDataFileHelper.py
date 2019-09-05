@@ -1,6 +1,6 @@
 # BUILD FLAG:   Set to True when creating executable packages to ensure dependency work-arounds
 #               Set to False for code releases to ensure Linux installation is easier to achieve
-EXECUTABLE_BUILD_INCLUSION = True
+EXECUTABLE_BUILD_INCLUSION = False
 
 # Python modules
 import re
@@ -830,17 +830,23 @@ class PaleoclimateToolDataFileHelper :
                 # Check current subgroup
                 sub_interval_ad = self.convertDataIntervalLabelToAD(self.cached_netCdf_data[parameter]['sub_interval_str'])
                 if sub_interval_ad['from_year_ad'] <= year_ad <= sub_interval_ad['until_year_ad'] :
-                    subgroup = rootgrp.groups[self.cached_netCdf_data[parameter]['sub_interval_str']]
-                    return subgroup.variables[year_str][month_index]
+                    try :
+                        subgroup = rootgrp.groups[self.cached_netCdf_data[parameter]['sub_interval_str']]
+                        return subgroup.variables[year_str][month_index]
+                    except :
+                        ignore = None # re-open netCDF file (as below)
 
-##                # Check current rootgrp
-##                for sub_interval_str in rootgrp.groups.keys() :
-##                    sub_interval_ad = self.convertDataIntervalLabelToAD(sub_interval_str)
-##                    if sub_interval_ad['from_year_ad'] <= year_ad <= sub_interval_ad['until_year_ad'] :
-##                        self.cached_netCdf_data[parameter]['sub_interval_str'] = sub_interval_str
-##                        return rootgrp.groups[sub_interval_str].variables[year_str][month_index]
+                # Check current rootgrp
+                for sub_interval_str in rootgrp.groups.keys() :
+                    sub_interval_ad = self.convertDataIntervalLabelToAD(sub_interval_str)
+                    if sub_interval_ad['from_year_ad'] <= year_ad <= sub_interval_ad['until_year_ad'] :
+                        self.cached_netCdf_data[parameter]['sub_interval_str'] = sub_interval_str
+                        try :
+                            return rootgrp.groups[sub_interval_str].variables[year_str][month_index]
+                        except :
+                            ignore = None # re-open netCDF file (as below)
 
-                # Not found - clear cache for parameter
+                # Not found or fail - clear cache for parameter
                 rootgrp.close()
                 self.cached_netCdf_data.pop(parameter)
 

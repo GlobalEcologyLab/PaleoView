@@ -5,16 +5,16 @@
 ; NOTE: The value of AppId uniquely identifies this application.
 ; Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{B6F86A19-6567-42F1-B8A1-7632B7016A81}
+AppId={{91C97072-E776-4B4E-8F5A-E6B3F2AC7993}
 AppName=PaleoView
-AppVersion=1.1
-AppVerName=PaleoView v1.1
+AppVersion=1.4
+AppVerName=PaleoView v1.4
 AppPublisher=Global Ecology Lab
-AppPublisherURL=http://www.example.com/
-AppSupportURL=http://www.example.com/
-AppUpdatesURL=http://www.example.com/
-DefaultDirName={pf}\PaleoView v1.1
-DefaultGroupName=PaleoView v1.1
+AppPublisherURL=https://github.com/GlobalEcologyLab/PaleoView
+AppSupportURL=https://github.com/GlobalEcologyLab/PaleoView
+AppUpdatesURL=https://github.com/GlobalEcologyLab/PaleoView
+DefaultDirName={pf}\PaleoView v1.4
+DefaultGroupName=PaleoView v1.4
 OutputBaseFilename=setup
 Compression=lzma
 SolidCompression=yes
@@ -26,7 +26,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "C:\Users\shaythorne\Dropbox\GlobalEcology\PythonResources\vcredist_x86.exe"; DestDir: {tmp}
+Source: "C:\Users\Sean\GoogleDrive\GEL-Archive\PythonResources\vcredist_x86.exe"; DestDir: {tmp}
 Source: "dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "paleo_view_config.txt"; DestDir: "{app}"
 Source: "Map Data/*"; DestDir: "{app}/Map Data"; Flags: recursesubdirs createallsubdirs
@@ -34,10 +34,10 @@ Source: "Bias Corrections/*"; DestDir: "{app}/Bias Corrections"; Flags: recurses
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files vcredist_x86.exe
 
 [Icons]
-Name: "{group}\PaleoView v1.1"; Filename: "{app}\paleo_view_v1_1.exe"
-Name: "{commondesktop}\PaleoView v1.1"; Filename: "{app}\paleo_view_v1_1.exe"; Tasks: desktopicon
+Name: "{group}\PaleoView v1.4"; Filename: "{app}\paleo_view_v1_4.exe"
+Name: "{commondesktop}\PaleoView v1.4"; Filename: "{app}\paleo_view_v1_4.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{tmp}\vcredist_x86.exe"; Parameters: "/qu"; StatusMsg: "Installing Microsoft Visual C++ 2008 Redistributable Package..."
 Filename: "{tmp}\vcredist_x86.exe"; Parameters: ""; StatusMsg: "Installing Microsoft Visual C++ 2008 Redistributable Package..."
-Filename: "{app}\paleo_view_v1_1.exe"; Description: "{cm:LaunchProgram,PaleoView}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\paleo_view_v1_4.exe"; Description: "{cm:LaunchProgram,PaleoView}"; Flags: nowait postinstall skipifsilent
