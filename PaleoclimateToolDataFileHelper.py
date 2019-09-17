@@ -92,7 +92,7 @@ class PaleoclimateToolDataFileHelper :
         self.climate_data_file_template = path.join('{parameter_directory_code}', 'Trace21_2.5x2.5_{year}{postfix}.1{parameter_file_code}{month_code}.txt')
 
         # Climate data download intervals
-        self.climate_data_download_intervals = ['22000BP-15000BP', '15000BP-10000BP', '10000BP-5000BP', '5000BP-1989AD']
+        self.climate_data_download_intervals = ['5000BP-1989AD', '10000BP-5000BP', '15000BP-10000BP', '22000BP-15000BP']
         self.download_data_window = 100 # needs to match with the tool's maximum interval size
 
         # Use downloaded NetCDF files. Maintain a current list of available files for each parameter
@@ -100,8 +100,16 @@ class PaleoclimateToolDataFileHelper :
         self.current_netCdf_data_intervals = self.getCurrentNetCdfDataIntervals()
 
         # Cached NetCDF file and subgroup for parameter # TODO clear NetCDF data cache
-        self.cached_netCdf_data = {} # { parameter : { 'rootgrp' : <DataSet>, 'root_interval_str' : str, 'sub_interval_str' : str  } }
+        self.cached_netCdf_data = {} # { parameter : { 'rootgrp' : <DataSet>, 'root_interval_str' : str, 'sub_interval_str' : str,
+                                     #                 'year_grids' : {}, 'year_keys' : [], 'call_count' : int },
+                                     #   'delta_ref_data' : [] }
 
+        # Number of netCDF arrays to cache (set to interval size : max 100)
+        self.cached_netCdf_size = 31
+
+        # NetCDF grid writing cache
+        self.netCdf_writing_cache = {} # { 'times_array': [], 'data_array' : [], 'count' : int }
+        
         # Non-gridded parameter files
         self.non_gridded_parameter_files = { 'southern-oscillation' : { 'soi' : 'South_Oscillation_Index.txt', 'enso' : '' } }
         self.non_gridded_parameter_file_columns = { 'southern-oscillation' : { 'soi' : { 'postfix' : 'BP/AD', 'year' : 'Yrs', 'month_code' : 'Months', 'data' : 'SOI'},
@@ -245,7 +253,7 @@ class PaleoclimateToolDataFileHelper :
                 current_url_file = url.urlopen('https://storage.googleapis.com/paleoview-data/current_url.txt')
                 self.setClimateDataUrl(current_url_file.readline().rstrip())
             except Exception, e :
-                return True # assume no internet connection or URL is unavailable
+                return True # assume no internet connection
             try :
                 current_first_url_file = url.urlopen((self.climate_data_url + 'current_url.txt'))
                 current_first_url_file.close()
@@ -305,8 +313,11 @@ class PaleoclimateToolDataFileHelper :
 
     # Method clears NetCDF data file cache
     def clearNetCdfDataCache(self) :
+        if self.cached_netCdf_data.has_key('delta_ref_data') :
+            self.cached_netCdf_data.pop('delta_ref_data')
         for parameter, cached_data in self.cached_netCdf_data.items() :
-            cached_data['rootgrp'].close()
+            if cached_data.has_key('rootgrp') :
+                cached_data['rootgrp'].close()
             self.cached_netCdf_data.pop(parameter)
 
     # Climate data download interval present
@@ -487,6 +498,9 @@ class PaleoclimateToolDataFileHelper :
 
         # Update current NetCDF data file availability
         self.getCurrentNetCdfDataIntervals()
+
+        # Set netCDF cache size to the interval size
+        self.cached_netCdf_size = min(interval_size+1, 500)
         
         # Setup proxy for web-based climate data when required
         self.setupClimateDataProxy()
@@ -506,6 +520,29 @@ class PaleoclimateToolDataFileHelper :
                                          period_ad_until=(period_ad_until + interval_size/2 - int(not bool(interval_size%2))),
                                          delta_interval=delta_interval)
 
+        # Collect (cached) delta reference data when required
+        if delta_ref_period_ad :
+            if self.cached_netCdf_data.has_key('delta_ref_data') :
+                delta_ref_data = self.cached_netCdf_data['delta_ref_data']
+            else :
+                if all_months :
+                    delta_ref_data = []
+                    for month_index in range(12) :
+                        delta_ref_data.append(self.generateParameterDataInterval(parameter_group_code=parameter_group_code,
+                                                                                 parameter_code=parameter_code,
+                                                                                 interval_ad_from=(delta_ref_period_ad - interval_size/2),
+                                                                                 interval_ad_until=(delta_ref_period_ad + interval_size/2 - int(not bool(interval_size%2))),
+                                                                                 month_indices=[month_index],
+                                                                                 correct_bias=correct_bias))
+                else :
+                    delta_ref_data = self.generateParameterDataInterval(parameter_group_code=parameter_group_code,
+                                                                        parameter_code=parameter_code,
+                                                                        interval_ad_from=(delta_ref_period_ad - interval_size/2),
+                                                                        interval_ad_until=(delta_ref_period_ad + interval_size/2 - int(not bool(interval_size%2))),
+                                                                        month_indices=month_indices,
+                                                                        correct_bias=correct_bias)
+                self.cached_netCdf_data['delta_ref_data'] = delta_ref_data
+
         # Collect data
         parameter_data = []
         intervals = range(period_ad_from, period_ad_until+1, interval_step)
@@ -520,8 +557,11 @@ class PaleoclimateToolDataFileHelper :
                                                                                    month_indices=[month_index],
                                                                                    correct_bias=correct_bias))
                     if self.application_gui != None :
-                        self.application_gui.generation_status_bar['value'] += interval_size
-                        self.application_gui.update() # .update_idletasks()
+                        try :
+                            self.application_gui.generation_status_bar['value'] += interval_size
+                            self.application_gui.update() # .update_idletasks()
+                        except :
+                            return([])
                         #print 'generateParameterData, all_months:', all_months, self.application_gui.generation_status_bar['value'], time()
                 parameter_data.append(parameter_data_month)
         else :
@@ -533,28 +573,19 @@ class PaleoclimateToolDataFileHelper :
                                                                          month_indices=month_indices,
                                                                          correct_bias=correct_bias))
                 if self.application_gui != None :
-                    self.application_gui.generation_status_bar['value'] += interval_size * len(month_indices)
-                    self.application_gui.update() # .update_idletasks()
+                    try :
+                        self.application_gui.generation_status_bar['value'] += interval_size * len(month_indices)
+                        self.application_gui.update() # .update_idletasks()
+                    except :
+                        return([])
                     #print 'generateParameterData, all_months:', all_months, self.application_gui.generation_status_bar['value'], time()
 
-        # Calculate delta values when required
+        # Calculate delta values from reference data when required 
         if delta_ref_period_ad :
             if all_months :
                 for month_index in range(12) :
-                    delta_ref_data = self.generateParameterDataInterval(parameter_group_code=parameter_group_code,
-                                                                        parameter_code=parameter_code,
-                                                                        interval_ad_from=(delta_ref_period_ad - interval_size/2),
-                                                                        interval_ad_until=(delta_ref_period_ad + interval_size/2 - int(not bool(interval_size%2))),
-                                                                        month_indices=[month_index],
-                                                                        correct_bias=correct_bias)
                     parameter_data[month_index] = self.calculateDeltaValues(parameter_data[month_index], delta_ref_data, delta_as_percent=delta_as_percent, grid_data=self.parameterDataIsGridded(parameter_group_code, parameter_code))
             else :
-                delta_ref_data = self.generateParameterDataInterval(parameter_group_code=parameter_group_code,
-                                                                    parameter_code=parameter_code,
-                                                                    interval_ad_from=(delta_ref_period_ad - interval_size/2),
-                                                                    interval_ad_until=(delta_ref_period_ad + interval_size/2 - int(not bool(interval_size%2))),
-                                                                    month_indices=month_indices,
-                                                                    correct_bias=correct_bias)
                 parameter_data = self.calculateDeltaValues(parameter_data, delta_ref_data, delta_as_percent=delta_as_percent, grid_data=self.parameterDataIsGridded(parameter_group_code, parameter_code))
 
         # Return statistics for series data requests when gridded
@@ -827,31 +858,54 @@ class PaleoclimateToolDataFileHelper :
             # Check NetCDF cache for data first
             if self.cached_netCdf_data.has_key(parameter) :
 
+                # Check cached year grids
+                if self.cached_netCdf_data[parameter]['year_grids'].has_key(year_ad) :
+                    return self.cached_netCdf_data[parameter]['year_grids'][year_ad][month_index]
+
                 # Get root group DataSet object
                 rootgrp = self.cached_netCdf_data[parameter]['rootgrp']
 
-                # Check current subgroup
-                sub_interval_ad = self.convertDataIntervalLabelToAD(self.cached_netCdf_data[parameter]['sub_interval_str'])
-                if sub_interval_ad['from_year_ad'] <= year_ad <= sub_interval_ad['until_year_ad'] :
-                    try :
-                        subgroup = rootgrp.groups[self.cached_netCdf_data[parameter]['sub_interval_str']]
-                        return subgroup.variables[year_str][month_index]
-                    except :
-                        ignore = None # re-open netCDF file (as below)
+                # Avoid memory limit (2GB)
+                if self.cached_netCdf_data[parameter]['call_count'] <= 800/(len(self.cached_netCdf_data.keys())) :
 
-                # Check current rootgrp
-                for sub_interval_str in rootgrp.groups.keys() :
-                    sub_interval_ad = self.convertDataIntervalLabelToAD(sub_interval_str)
+                    # Check current subgroup
+                    sub_interval_ad = self.convertDataIntervalLabelToAD(self.cached_netCdf_data[parameter]['sub_interval_str'])
                     if sub_interval_ad['from_year_ad'] <= year_ad <= sub_interval_ad['until_year_ad'] :
-                        self.cached_netCdf_data[parameter]['sub_interval_str'] = sub_interval_str
                         try :
-                            return rootgrp.groups[sub_interval_str].variables[year_str][month_index]
+                            subgroup = rootgrp.groups[self.cached_netCdf_data[parameter]['sub_interval_str']]
+                            self.cached_netCdf_data[parameter]['year_grids'][year_ad] = subgroup.variables[year_str][:,:,:]
+                            self.cached_netCdf_data[parameter]['year_keys'].append(year_ad)
+                            if (len(self.cached_netCdf_data[parameter]['year_grids']) > self.cached_netCdf_size) :
+                                self.cached_netCdf_data[parameter]['year_grids'].pop(self.cached_netCdf_data[parameter]['year_keys'].pop(0))
+                            self.cached_netCdf_data[parameter]['call_count'] = self.cached_netCdf_data[parameter]['call_count'] + 1
+                            return self.cached_netCdf_data[parameter]['year_grids'][year_ad][month_index]
                         except :
+                            #print 'error 1'
                             ignore = None # re-open netCDF file (as below)
 
-                # Not found or fail - clear cache for parameter
+                    # Check current rootgrp
+                    for sub_interval_str in rootgrp.groups.keys() :
+                        sub_interval_ad = self.convertDataIntervalLabelToAD(sub_interval_str)
+                        if sub_interval_ad['from_year_ad'] <= year_ad <= sub_interval_ad['until_year_ad'] :
+                            self.cached_netCdf_data[parameter]['sub_interval_str'] = sub_interval_str
+                            try :
+                                self.cached_netCdf_data[parameter]['year_grids'][year_ad] = rootgrp.groups[sub_interval_str].variables[year_str][:,:,:]
+                                self.cached_netCdf_data[parameter]['year_keys'].append(year_ad)
+                                if (len(self.cached_netCdf_data[parameter]['year_grids']) > self.cached_netCdf_size) :
+                                    self.cached_netCdf_data[parameter]['year_grids'].pop(self.cached_netCdf_data[parameter]['year_keys'].pop(0))
+                                self.cached_netCdf_data[parameter]['call_count'] = self.cached_netCdf_data[parameter]['call_count'] + 1
+                                return self.cached_netCdf_data[parameter]['year_grids'][year_ad][month_index]
+                            except :
+                                #print 'error 2'
+                                ignore = None # re-open netCDF file (as below)
+
+                # Count reset, not found, or fail - clear cache for parameter
+                # print 'count', self.cached_netCdf_data[parameter]['call_count']
                 rootgrp.close()
+                year_grids_copy = self.cached_netCdf_data[parameter]['year_grids']#.copy()
+                year_keys = self.cached_netCdf_data[parameter]['year_keys']
                 self.cached_netCdf_data.pop(parameter)
+                self.cached_netCdf_data[parameter] = { 'year_grids' : year_grids_copy, 'year_keys' : year_keys, 'call_count' : 0 }
 
             # Check available NetCDF data files
             for root_interval_str in self.current_netCdf_data_intervals[parameter] :
@@ -864,8 +918,19 @@ class PaleoclimateToolDataFileHelper :
                         for sub_interval_str in rootgrp.groups.keys() :
                             sub_interval_ad = self.convertDataIntervalLabelToAD(sub_interval_str)
                             if sub_interval_ad['from_year_ad'] <= year_ad <= sub_interval_ad['until_year_ad'] :
-                                self.cached_netCdf_data[parameter] = { 'rootgrp' : rootgrp, 'root_interval_str' : root_interval_str, 'sub_interval_str' : sub_interval_str  }
-                                return rootgrp.groups[sub_interval_str].variables[year_str][month_index]
+                                if self.cached_netCdf_data.has_key(parameter) :
+                                    self.cached_netCdf_data[parameter]['rootgrp'] = rootgrp
+                                    self.cached_netCdf_data[parameter]['root_interval_str'] = root_interval_str
+                                    self.cached_netCdf_data[parameter]['sub_interval_str'] = sub_interval_str
+                                    self.cached_netCdf_data[parameter]['year_grids'][year_ad] = rootgrp.groups[sub_interval_str].variables[year_str][:,:,:]
+                                    self.cached_netCdf_data[parameter]['year_keys'].append(year_ad)
+                                    if (len(self.cached_netCdf_data[parameter]['year_grids']) > self.cached_netCdf_size) :
+                                        self.cached_netCdf_data[parameter]['year_grids'].pop(self.cached_netCdf_data[parameter]['year_keys'].pop(0))
+                                else :
+                                    self.cached_netCdf_data[parameter] = { 'rootgrp' : rootgrp, 'root_interval_str' : root_interval_str, 'sub_interval_str' : sub_interval_str,
+                                                                           'year_grids' : {year_ad : rootgrp.groups[sub_interval_str].variables[year_str][:,:,:]},
+                                                                           'year_keys' : [year_ad], 'call_count' : 0 }
+                                return self.cached_netCdf_data[parameter]['year_grids'][year_ad][month_index]
                     except Exception, e :
                         exception_message = 'Could not open NetCDF data file: ' + path.join(self.climate_data_directory['path'], (parameter+'-'+root_interval_str+'.nc')) + '\n' + str(e)
                         raise Exception(exception_message)
@@ -980,7 +1045,7 @@ class PaleoclimateToolDataFileHelper :
         return grid_statistics
 
     # Method generates a grid data file
-    def generateGridDataFile(self, masked_data, file_type, year_label, description=None, data_units=None) :
+    def generateGridDataFile(self, masked_data, file_type, year_label, year_ad=None, description=None, filename=None, times=None, data_units=None, grid=None) :
         masked_data[((np.isfinite(masked_data)-1)*-1).nonzero()] = np.nan
         data_frame = pd.DataFrame(masked_data)
         if file_type == 'csv' :
@@ -1001,21 +1066,52 @@ class PaleoclimateToolDataFileHelper :
             f.write(string_buffer.getvalue())
             f.close()
         elif file_type == 'netcdf' :
-            output_file_path = path.join(self.file_generation_directory['path'], ('grid_data_'+year_label+'.nc'))
-            rootgrp = Dataset(output_file_path, 'w')
-            rootgrp.description = str(description)
-            lat = rootgrp.createDimension('lat', 72)
-            lon = rootgrp.createDimension('lon', 144)
-            latitudes = rootgrp.createVariable('latitudes','f8',('lat',))
-            longitudes = rootgrp.createVariable('longitudes','f8',('lon',))
-            data = rootgrp.createVariable('data','f8',('lat','lon',))
-            latitudes.units = 'degrees north'
-            longitudes.units = 'degrees east'
-            data.units = str(data_units)
-            latitudes[:] = np.arange(88.75,-88.751,-2.5)
-            longitudes[:] = np.arange(-178.75,178.751,2.5)
-            data[:,:] = masked_data 
-            rootgrp.close()
+            if grid == 'first' :
+                output_file_path = path.join(self.file_generation_directory['path'], (filename+'.nc'))
+                rootgrp = Dataset(output_file_path, 'w')
+                rootgrp.Conventions = 'CF-1.7'
+                rootgrp.title = str(filename)
+                rootgrp.institution = 'Global Ecology Lab'
+                rootgrp.source = 'https://github.com/GlobalEcologyLab/PaleoView'
+                rootgrp.history = '[' + strftime("%Y-%m-%d %H:%M", localtime()) + ']' + 'Created netCDF4 zlib=True dataset.'
+                rootgrp.description = str(description)
+                rootgrp.createDimension('time', len(times))
+                rootgrp.createDimension('lat', 72)
+                rootgrp.createDimension('lon', 144)
+                time = rootgrp.createVariable('time','i4',('time',))
+                time.units = '- years BP' # 'years since 1950-1-1' shifts out of sync over time
+                time.calendar = 'noleap'
+                time.axis = 'T'
+                time.long_name = 'time'
+                time.standard_name = 'time'
+                time[:] = times
+                latitude = rootgrp.createVariable('lat','f8',('lat',), zlib=True)
+                latitude.units = 'degrees_north'
+                latitude.axis = 'Y'
+                latitude.long_name = 'latitude'
+                latitude.standard_name = 'latitude'
+                latitude[:] = np.arange(88.75,-88.751,-2.5)
+                longitude = rootgrp.createVariable('lon','f8',('lon',), zlib=True)
+                longitude.units = 'degrees_east'
+                longitude.axis = 'X'            
+                longitude.long_name = 'longitude'
+                longitude.standard_name = 'longitude'
+                longitude[:] = np.arange(-178.75,178.751,2.5)
+                data = rootgrp.createVariable(filename,'f8',('time','lat','lon'), zlib=True, least_significant_digit=7)
+                data.coordinates = 'time lat lon'
+                data.units = data_units
+                data.long_name = filename.replace('_',' ').title()
+                rootgrp.close()
+                self.netCdf_writing_cache = { 'times_array': [], 'data_array' : [], 'count' : 0 }
+            self.netCdf_writing_cache['times_array'].append(times.index(year_ad-1950))
+            self.netCdf_writing_cache['data_array'].append(masked_data)
+            self.netCdf_writing_cache['count'] += 1
+            if self.netCdf_writing_cache['count'] > 500 or grid == 'last' : # optimize?
+                output_file_path = path.join(self.file_generation_directory['path'], (filename+'.nc'))
+                rootgrp = Dataset(output_file_path, 'a')
+                rootgrp.variables[filename][self.netCdf_writing_cache['times_array'],:,:] = np.array(self.netCdf_writing_cache['data_array'])
+                rootgrp.close()
+                self.netCdf_writing_cache = { 'times_array': [], 'data_array' : [], 'count' : 0 }
 
     # Method generates a series data file
     def generateSeriesDataFile(self, data_frame, file_type, month='', description=None, data_units=None) :

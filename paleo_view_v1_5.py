@@ -806,10 +806,12 @@ class ApplicationGUI(tk.Frame) :
 
         if OPEN_INTERVALS :
             self.interval_step_range = { 'min' : 1, 'max' : 10000 }
+            self.interval_step_values = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
+            self.current_interval_step_values = [1, 2, 5, 10, 20, 50, 100]
         else :
             self.interval_step_range = { 'min' : 10, 'max' : 10000 }
-        self.interval_step_values = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
-        self.current_interval_step_values = [10, 20, 50, 100]
+            self.interval_step_values = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
+            self.current_interval_step_values = [10, 20, 50, 100]
         self.current_valid_interval_step_value = 20
         self.previous_interval_step_text_value = '20'
         self.interval_step_entry = tk.Spinbox(interval_step_frame, textvariable=self.interval_step_text, values=tuple(map(str, self.current_interval_step_values)), width=6, justify=tk.CENTER)
@@ -818,11 +820,13 @@ class ApplicationGUI(tk.Frame) :
         self.current_interval_steps = 8
 
         if OPEN_INTERVALS :
-            self.interval_size_range = { 'min' : 1, 'max' : 10000 }
+            self.interval_size_range = { 'min' : 1, 'max' : 1000 }
+            self.interval_size_values = [1, 2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 500, 1000]
+            self.current_interval_size_values = [1, 2, 5, 10, 20, 30, 40, 50, 60, 70, 80]
         else :
             self.interval_size_range = { 'min' : 10, 'max' : 100 }
-        self.interval_size_values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-        self.current_interval_size_values = [10, 20, 30, 40, 50, 60, 70, 80]
+            self.interval_size_values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+            self.current_interval_size_values = [10, 20, 30, 40, 50, 60, 70, 80]
         self.current_valid_interval_size_value = 30
         self.previous_interval_size_text_value = '30'
         self.interval_size_entry = tk.Spinbox(interval_size_frame, textvariable=self.interval_size_text, values=tuple(map(str, self.current_interval_size_values)), width=6, justify=tk.CENTER)
@@ -1000,9 +1004,9 @@ class ApplicationGUI(tk.Frame) :
         self.file_generation_completed = False
 
         # Data file type
-        self.data_file_type_keys = ['csv', 'ascii', 'esri_ascii'] #, 'netcdf']
-        self.data_file_type_selection = ['CSV', 'ASCII', 'ESRI ASCII'] #, 'NetCDF']
-        self.data_file_types_for_data_type = { 'map' : ['csv', 'ascii', 'esri_ascii'], # 'netcdf'
+        self.data_file_type_keys = ['csv', 'ascii', 'esri_ascii', 'netcdf']
+        self.data_file_type_selection = ['CSV', 'ASCII', 'ESRI ASCII', 'NetCDF']
+        self.data_file_types_for_data_type = { 'map' : ['csv', 'ascii', 'esri_ascii', 'netcdf'],
                                                'series' : ['csv', 'ascii'] } # 'netcdf'
         self.data_file_type_text = tk.StringVar()
         self.data_file_type_text.set(self.data_file_type_selection[0])
@@ -3721,7 +3725,7 @@ class ApplicationGUI(tk.Frame) :
             if data_action == 'view' :
                 current_display_string += 'grid map plot'
             elif data_action == 'files' :
-                current_display_string += 'gridded data file'
+                current_display_string += 'data grid'
         elif data_type == 'series' :
             current_display_string += 'time series value'
         if current_steps > 1 :
@@ -3907,19 +3911,20 @@ class ApplicationGUI(tk.Frame) :
         else :
             maximum_bp_period = self.period_ranges['BP']['max']
         maximum_ad_period = self.period_ranges['AD']['max']
-        limited_via_period = None
+        limited_via_period_list = []
         if self.period_postfix_text['from'].get() == self.period_postfix_keys[0] : # BP
-            limited_via_period = (maximum_bp_period - self.current_valid_period_value['from'])*2 + 1
-        elif self.period_postfix_text['until'].get() == self.period_postfix_keys[1] : # AD
-            limited_via_period = ((maximum_ad_period - self.current_valid_period_value['until']) + 1)*2
-        maximum_value = self.interval_size_range['max']
-        if limited_via_period != None :
-            if limited_via_period < self.interval_size_range['min'] :
-                maximum_value = self.interval_size_range['min']
-            elif limited_via_period > self.interval_size_range['max'] :
-                maximum_value = self.interval_size_range['max']
-            else :
-                maximum_value = limited_via_period
+            limited_via_period_list.append((maximum_bp_period - self.current_valid_period_value['from'])*2 + 1)
+        if self.period_postfix_text['until'].get() == self.period_postfix_keys[0] : # BP
+            limited_via_period_list.append(((maximum_ad_period - (1950-self.current_valid_period_value['until'])) + 1)*2)
+        else : # AD
+            limited_via_period_list.append(((maximum_ad_period - self.current_valid_period_value['until']) + 1)*2)
+        limited_via_period = min(limited_via_period_list)
+        if limited_via_period < self.interval_size_range['min'] :
+            maximum_value = self.interval_size_range['min']
+        elif limited_via_period > self.interval_size_range['max'] :
+            maximum_value = self.interval_size_range['max']
+        else :
+            maximum_value = limited_via_period
         return maximum_value
 
     # Step 4 Method: Match Interval Size With Step
@@ -4466,7 +4471,7 @@ class ApplicationGUI(tk.Frame) :
                                                                          all_months=self.time_unit_is_all_months,
                                                                          correct_bias=self.utilise_bias_correction.get())
             #print strftime("%Y-%m-%d %H:%M:%S", localtime())
-            data_extraction_ok = True
+            data_extraction_ok = (len(parameter_data) > 0)
             self.data_file_helper.clearNetCdfDataCache()
         except Exception, e :
             self.data_file_helper.clearNetCdfDataCache()
@@ -5802,7 +5807,7 @@ class ApplicationGUI(tk.Frame) :
         else :
             delta_ref_period_ad = None
 
-        # Construct description (for netCDF files)
+        # Construct description, filename, and times (for netCDF files)
         description = ''
         if self.utilise_delta.get() :
             if self.delta_as_percent.get() :
@@ -5822,7 +5827,21 @@ class ApplicationGUI(tk.Frame) :
         if self.utilise_delta.get() :
             delta_reference_period_code = self.delta_reference_period_codes[self.delta_reference_interval_selection.index(self.delta_reference_interval_text.get())]
             description += ' Relative to ' + str(self.delta_reference_value[delta_reference_period_code]['year']) + ' ' + self.delta_reference_value[delta_reference_period_code]['postfix']
-
+        filename = self.parameter_via_group_text[self.parameter_group_selection_map[self.parameter_group_text.get()]].get().replace(' ','_') + '_'
+        if self.time_unit_text.get() == 'Month' :
+            filename += self.time_unit_months_text.get() + '_'
+        elif self.time_unit_text.get() == 'Annual' :
+            filename += 'Annual_'
+        elif self.time_unit_text.get() == 'Season' :
+            filename += self.time_unit_seasons_text.get() + '_'
+        elif self.time_unit_text.get() == 'User-defined' :
+            filename += self.time_unit_other_text.get() + '_'
+        filename += (self.period_text['from'].get() + self.period_postfix_text['from'].get() + '-' +
+                     self.period_text['until'].get() + self.period_postfix_text['until'].get() +
+                     '_step' + str(self.current_valid_interval_step_value) +
+                     '_size' + str(self.current_valid_interval_size_value))
+        times = range(period_ad_from-1950,period_ad_until-1950+1,self.current_valid_interval_step_value)
+        
         # Data units
         if self.delta_as_percent.get() :
             data_units = '%'
@@ -5853,7 +5872,6 @@ class ApplicationGUI(tk.Frame) :
                                                                                  generate_grids=generate_grids,
                                                                                  all_months=self.time_unit_is_all_months,
                                                                                  correct_bias=self.utilise_bias_correction.get())
-                    self.parameter_data = parameter_data[0].copy()
                 except Exception, e :
                     self.data_file_helper.clearNetCdfDataCache()
                     showerror('Data extraction error', str(e))
@@ -5861,6 +5879,8 @@ class ApplicationGUI(tk.Frame) :
 
                 # Generate the grid data file
                 if parameter_data :
+
+                    self.parameter_data = parameter_data[0].copy()
 
                     # Resolve year and postfix for data
                     if self.period_postfix_text['from'].get() == self.period_postfix_keys[0] and self.period_postfix_text['until'].get() == self.period_postfix_keys[0] : # both BP
@@ -5886,7 +5906,14 @@ class ApplicationGUI(tk.Frame) :
 
                     # Generate a grid data file
                     try :
-                        self.data_file_helper.generateGridDataFile(masked_parameter_data, file_type=data_file_type, year_label=(str(year)+postfix), description=description, data_units=data_units)
+                        if year_ad == period_years_ad[0] :
+                            grid = 'first'
+                        elif year_ad == period_years_ad[-1] :
+                            grid = 'last'
+                        else :
+                            grid = None
+                        self.data_file_helper.generateGridDataFile(masked_parameter_data, file_type=data_file_type, year_label=(str(year)+postfix),
+                                                                   year_ad=year_ad, description=description, filename=filename, times=times, data_units=data_units, grid=grid)
                         generated_file_count += 1
                     except Exception, e :
                         showerror('File generation error', str(e))
@@ -5896,7 +5923,10 @@ class ApplicationGUI(tk.Frame) :
             expected_when_error = ''
             if generated_file_count < len(period_years_ad) :
                 expected_when_error = ' of the ' + str(len(period_years_ad)) + ' expected'
-            generation_status = str(generated_file_count) + expected_when_error + ' grid data files generated in \"' + self.data_file_helper.getFileGenerationDirectoryName()+ '\"'
+            if data_file_type == 'netcdf' :
+                generation_status = str(generated_file_count) + expected_when_error + ' grid data grids generated in netCDF file in \"' + self.data_file_helper.getFileGenerationDirectoryName()+ '\"'
+            else :
+                generation_status = str(generated_file_count) + expected_when_error + ' grid data files generated in \"' + self.data_file_helper.getFileGenerationDirectoryName()+ '\"'
             if generated_file_count :
                 self.updateToolGenerationLogEntry(grids_generated={ 'number' : generated_file_count, 'expected' : len(period_years_ad) })
                 self.updateToolGenerationLogs()
@@ -6215,9 +6245,15 @@ class ApplicationGUI(tk.Frame) :
                 number_generated = self.tool_generation_log_entry['grids_generated']['number']
                 number_expected = self.tool_generation_log_entry['grids_generated']['expected']
                 if number_generated < number_expected :
-                    log_entry_string += '  ' + str(number_generated) + ' of the expected ' + str(number_expected) + ' ' + self.data_file_type_text.get() + ' data files'
+                    if self.data_file_type_text.get() == 'NetCDF' :
+                        log_entry_string += '  ' + str(number_generated) + ' of the expected ' + str(number_expected) + ' data grids within the ' + self.data_file_type_text.get() + ' file'
+                    else :
+                        log_entry_string += '  ' + str(number_generated) + ' of the expected ' + str(number_expected) + ' ' + self.data_file_type_text.get() + ' data files'
                 else :
-                    log_entry_string += '  ' + str(number_generated) + ' ' + self.data_file_type_text.get() + ' data files'
+                    if self.data_file_type_text.get() == 'NetCDF' :
+                        log_entry_string += '  ' + str(number_generated) + ' data grids within the ' + self.data_file_type_text.get() + ' file'
+                    else :
+                        log_entry_string += '  ' + str(number_generated) + ' ' + self.data_file_type_text.get() + ' data files'
             elif self.tool_generation_log_entry['data_type'] == 'series' :
                 log_entry_string += '  ' + self.data_file_type_text.get() + ' data file' + 's'*multiple_files
             log_entry_string += ' generated in ' + self.data_file_helper.getFileGenerationDirectoryPath()
@@ -6420,7 +6456,7 @@ class ApplicationGUI(tk.Frame) :
 
 ## Main program
 
-application_name = 'PaleoView v1.4'
+application_name = 'PaleoView v1.5'
 
 # Set user application data directory
 if MAC_VERSION :
@@ -6460,6 +6496,7 @@ app.mainloop()
 if not DEBUG : # close log files
     sys.stdout.close()
     sys.stderr.close()
+    app.data_file_helper.destroy()
 
 if root.children :
     root.destroy() # required for menu quit
