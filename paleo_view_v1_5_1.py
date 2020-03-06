@@ -2800,8 +2800,9 @@ class ApplicationGUI(tk.Frame) :
                 basemap_resolution = 'l'
 
             # Set/calculate dimensions and margins
-            maximum_width = 15.0
-            maximum_height = 9.0
+            maximum_width = self.master.winfo_screenmmwidth()/25.4*0.8 # was 15.0 inches
+            maximum_height = self.master.winfo_screenmmheight()/25.4*0.8 - 0.5 # was 9.0 inches
+            dpi = int(25.4*self.master.winfo_screenwidth()/self.master.winfo_screenmmwidth())
             margin = 0.2
             region_box = self.region_bounding_box[self.current_region]
             if self.current_region in ['antarctica'] :
@@ -2823,8 +2824,8 @@ class ApplicationGUI(tk.Frame) :
                 bounding_lat = -60
             if update :
                 self.view_edit_region_figure.set_size_inches(width, height, forward=True)
-            else :
-                self.view_edit_region_figure = Figure(figsize=(width, height), frameon=False, linewidth=10, dpi=100, tight_layout=True)
+            else : # was dpi=100
+                self.view_edit_region_figure = Figure(figsize=(width, height), frameon=False, linewidth=10, dpi=dpi, tight_layout=True)
                 self.view_edit_region_plot_axes = self.view_edit_region_figure.add_subplot(111)
             self.view_edit_region_figure.subplots_adjust(left=(margin/width), right=(1.0-margin/width), bottom=(margin/height), top=(1.0-margin/height))
             self.region_basemap = Basemap(ax=self.view_edit_region_plot_axes,
@@ -6456,7 +6457,7 @@ class ApplicationGUI(tk.Frame) :
 
 ## Main program
 
-application_name = 'PaleoView v1.5'
+application_name = 'PaleoView v1.5.1'
 
 # Set user application data directory
 if MAC_VERSION :
